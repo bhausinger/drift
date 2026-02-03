@@ -33,16 +33,19 @@ export const VIBES = {
     label: 'lo-fi',
     queries: ['lofi', 'lofi beats', 'lofi hip hop', 'lofi chill'],
     maxDuration: 6 * 60,
+    genres: ['Lo-Fi'],
   },
   dnb: {
     label: 'dnb',
-    queries: ['drum and bass', 'liquid dnb', 'dnb', 'jungle drum bass'],
+    queries: ['drum and bass', 'liquid dnb', 'dnb'],
     maxDuration: 8 * 60,
+    genres: ['Drum & Bass'],
   },
   bass: {
     label: 'bass',
     queries: ['dubstep', 'bass music', 'trap', 'bass heavy'],
     maxDuration: 7 * 60,
+    genres: ['Dubstep', 'Trap'],
   },
 }
 
@@ -79,8 +82,11 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
 
   const json = await res.json()
   const blocked = getBlockedIds()
+  const allowedGenres = config.genres ? new Set(config.genres) : null
   const filtered = (json.data || []).filter(
-    (t) => t.duration <= config.maxDuration && !blocked.has(t.id)
+    (t) => t.duration <= config.maxDuration
+      && !blocked.has(t.id)
+      && (!allowedGenres || allowedGenres.has(t.genre))
   )
   return shuffle(filtered)
 }
