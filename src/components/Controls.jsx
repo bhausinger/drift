@@ -1,7 +1,26 @@
-export default function Controls({ isPlaying, onPlayPause, onSkip, disabled }) {
+export default function Controls({ isPlaying, onPlayPause, onSkip, onBlock, disabled }) {
   return (
     <div className="flex items-center gap-8">
-      {/* Play / Pause — the primary action */}
+      {/* Block — don't play this again */}
+      <button
+        onClick={onBlock}
+        disabled={disabled}
+        className="w-10 h-10 flex items-center justify-center
+                   transition-all duration-300
+                   hover:scale-110 active:scale-95
+                   disabled:opacity-20 disabled:cursor-not-allowed disabled:hover:scale-100"
+        aria-label="Don't play this again"
+        title="Don't play this again"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" strokeWidth="2"
+             className="text-white/20 hover:text-red-400/60 transition-colors duration-300">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+        </svg>
+      </button>
+
+      {/* Play / Pause */}
       <button
         onClick={onPlayPause}
         disabled={disabled}
@@ -25,7 +44,7 @@ export default function Controls({ isPlaying, onPlayPause, onSkip, disabled }) {
         )}
       </button>
 
-      {/* Skip — secondary, understated */}
+      {/* Skip */}
       <button
         onClick={onSkip}
         disabled={disabled}

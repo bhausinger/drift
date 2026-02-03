@@ -7,12 +7,12 @@ export default function App() {
   return (
     <AuthProvider>
       <Background />
-      <h1 className="fixed top-8 left-1/2 -translate-x-1/2
-                     text-white/30 text-sm tracking-[0.3em] uppercase select-none font-light">
+      <h1 className="fixed top-6 sm:top-8 left-1/2 -translate-x-1/2
+                     text-white/30 text-sm tracking-[0.3em] uppercase select-none font-light z-10">
         drift
       </h1>
 
-      <main className="min-h-dvh flex flex-col items-center justify-center px-4">
+      <main className="min-h-dvh flex flex-col items-center justify-center px-4 pb-16 sm:pb-4">
         <Player />
       </main>
 
@@ -23,10 +23,10 @@ export default function App() {
         href="https://audius.co"
         target="_blank"
         rel="noopener noreferrer"
-        className="fixed bottom-5 right-6 flex items-center gap-2
+        className="fixed bottom-3 sm:bottom-5 right-4 sm:right-6 flex items-center gap-2
                    text-white/25 hover:text-white/40 transition-colors duration-500"
       >
-        <span className="text-[10px] tracking-wider">powered by</span>
+        <span className="text-[10px] tracking-wider hidden sm:inline">powered by</span>
         <img
           src="/audius-logo-white.svg"
           alt="Audius"

@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { useAudius } from '../hooks/useAudius'
+import { useGestures } from '../hooks/useGestures'
 import TrackInfo from './TrackInfo'
 import Controls from './Controls'
 import VibeSelector from './VibeSelector'
@@ -10,11 +11,20 @@ export default function Player() {
   const preloadRef = useRef(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [vibe, setVibe] = useState('lofi')
+  const [gestureHint, setGestureHint] = useState(null)
   const wantsToPlay = useRef(false)
+  const hintTimer = useRef(null)
 
-  const { currentTrack, streamUrl, nextStreamUrl, nextTrack, isLoading, error } = useAudius(vibe)
+  const { currentTrack, streamUrl, nextStreamUrl, nextTrack, prevTrack, blockCurrent, isLoading, error } = useAudius(vibe)
 
-  // Preload next track in a hidden audio element
+  // Flash a gesture hint briefly
+  const showHint = useCallback((text) => {
+    setGestureHint(text)
+    clearTimeout(hintTimer.current)
+    hintTimer.current = setTimeout(() => setGestureHint(null), 800)
+  }, [])
+
+  // Preload next track
   useEffect(() => {
     if (!nextStreamUrl) return
     if (!preloadRef.current) {
@@ -54,6 +64,45 @@ export default function Player() {
     nextTrack()
   }, [nextTrack])
 
+  const handlePrev = useCallback(() => {
+    const audio = audioRef.current
+    if (audio) {
+      audio.pause()
+      audio.removeAttribute('src')
+    }
+    setIsPlaying(false)
+    wantsToPlay.current = true
+    prevTrack()
+  }, [prevTrack])
+
+  const handleBlock = useCallback(() => {
+    const audio = audioRef.current
+    if (audio) {
+      audio.pause()
+      audio.removeAttribute('src')
+    }
+    setIsPlaying(false)
+    wantsToPlay.current = true
+    showHint('blocked')
+    blockCurrent()
+  }, [blockCurrent, showHint])
+
+  const handleSeekForward = useCallback(() => {
+    const audio = audioRef.current
+    if (audio && audio.duration) {
+      audio.currentTime = Math.min(audio.currentTime + 10, audio.duration)
+      showHint('+10s')
+    }
+  }, [showHint])
+
+  const handleSeekBack = useCallback(() => {
+    const audio = audioRef.current
+    if (audio) {
+      audio.currentTime = Math.max(audio.currentTime - 10, 0)
+      showHint('-10s')
+    }
+  }, [showHint])
+
   const handleVibeChange = useCallback((v) => {
     const audio = audioRef.current
     if (audio) {
@@ -65,7 +114,16 @@ export default function Player() {
     setVibe(v)
   }, [])
 
-  // When streamUrl changes (skip / auto-advance), load and play new track
+  // Gestures
+  const gestures = useGestures({
+    onSwipeUp: () => { showHint('skip'); handleSkip() },
+    onSwipeDown: () => { showHint('previous'); handlePrev() },
+    onSwipeLeft: handleBlock,
+    onDoubleTapRight: handleSeekForward,
+    onDoubleTapLeft: handleSeekBack,
+  })
+
+  // When streamUrl changes, load and play
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !streamUrl) return
@@ -82,7 +140,6 @@ export default function Player() {
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
-
     const onCanPlay = () => {
       if (wantsToPlay.current && audio.paused) {
         audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
@@ -96,7 +153,6 @@ export default function Player() {
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
-
     const onEnded = () => {
       setIsPlaying(false)
       wantsToPlay.current = true
@@ -110,32 +166,22 @@ export default function Player() {
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
-
-    const onError = () => {
-      if (wantsToPlay.current) {
-        nextTrack()
-      }
-    }
+    const onError = () => { if (wantsToPlay.current) nextTrack() }
     audio.addEventListener('error', onError)
     return () => audio.removeEventListener('error', onError)
   }, [nextTrack])
 
-  // Stall recovery — if stuck buffering for 5s, skip
+  // Stall recovery
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
-
     let stallTimer = null
     const onWaiting = () => {
       stallTimer = setTimeout(() => {
-        if (wantsToPlay.current && audio.paused) {
-          nextTrack()
-        }
+        if (wantsToPlay.current && audio.paused) nextTrack()
       }, 5000)
     }
-    const onPlaying = () => {
-      clearTimeout(stallTimer)
-    }
+    const onPlaying = () => clearTimeout(stallTimer)
     audio.addEventListener('waiting', onWaiting)
     audio.addEventListener('playing', onPlaying)
     return () => {
@@ -148,8 +194,20 @@ export default function Player() {
   const ready = !!streamUrl
 
   return (
-    <div className="flex flex-col items-center gap-10">
+    <div
+      className="flex flex-col items-center gap-6 sm:gap-10 w-full max-w-md px-4 select-none touch-manipulation"
+      {...gestures}
+    >
       <audio ref={audioRef} preload="auto" />
+
+      {/* Gesture hint overlay */}
+      {gestureHint && (
+        <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
+          <span className="text-white/40 text-sm tracking-widest uppercase animate-fade-in">
+            {gestureHint}
+          </span>
+        </div>
+      )}
 
       <VibeSelector current={vibe} onChange={handleVibeChange} />
 
@@ -169,6 +227,7 @@ export default function Player() {
         isPlaying={isPlaying}
         onPlayPause={handlePlayPause}
         onSkip={handleSkip}
+        onBlock={blockCurrent}
         disabled={!ready}
       />
     </div>
