@@ -10,10 +10,27 @@ function shuffle(arr) {
   return a
 }
 
-export async function fetchChill({ limit = 50, offset = 0 } = {}) {
-  // Rotate through queries and sort methods for variety between sessions
-  const queries = ['lofi', 'lofi beats', 'lofi hip hop', 'lofi chill']
-  const query = queries[Math.floor(Math.random() * queries.length)]
+export const VIBES = {
+  lofi: {
+    label: 'lo-fi',
+    queries: ['lofi', 'lofi beats', 'lofi hip hop', 'lofi chill'],
+    maxDuration: 6 * 60,
+  },
+  dnb: {
+    label: 'dnb',
+    queries: ['drum and bass', 'liquid dnb', 'dnb', 'jungle drum bass'],
+    maxDuration: 8 * 60,
+  },
+  bass: {
+    label: 'bass',
+    queries: ['dubstep', 'bass music', 'trap', 'bass heavy'],
+    maxDuration: 7 * 60,
+  },
+}
+
+export async function fetchTracks({ vibe = 'lofi', limit = 50, offset = 0 } = {}) {
+  const config = VIBES[vibe] || VIBES.lofi
+  const query = config.queries[Math.floor(Math.random() * config.queries.length)]
   const sorts = ['popular', 'recent', 'relevant']
   const sort = sorts[Math.floor(Math.random() * sorts.length)]
 
@@ -29,8 +46,7 @@ export async function fetchChill({ limit = 50, offset = 0 } = {}) {
   if (!res.ok) throw new Error(`Audius search failed: ${res.status}`)
 
   const json = await res.json()
-  const MAX_DURATION = 6 * 60 // 6 minutes in seconds
-  const filtered = (json.data || []).filter((t) => t.duration <= MAX_DURATION)
+  const filtered = (json.data || []).filter((t) => t.duration <= config.maxDuration)
   return shuffle(filtered)
 }
 

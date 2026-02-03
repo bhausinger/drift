@@ -20,7 +20,6 @@ export function AuthProvider({ children }) {
     try {
       sdkRef.current = sdk({
         apiKey: import.meta.env.VITE_AUDIUS_API_KEY,
-        apiSecret: import.meta.env.VITE_AUDIUS_API_SECRET,
         appName: 'drift',
       })
     } catch {

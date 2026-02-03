@@ -2,13 +2,28 @@ import { useRef, useState, useEffect, useCallback } from 'react'
 import { useAudius } from '../hooks/useAudius'
 import TrackInfo from './TrackInfo'
 import Controls from './Controls'
+import VibeSelector from './VibeSelector'
+import ProgressBar from './ProgressBar'
 
 export default function Player() {
   const audioRef = useRef(null)
+  const preloadRef = useRef(null)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [vibe, setVibe] = useState('lofi')
   const wantsToPlay = useRef(false)
 
-  const { currentTrack, streamUrl, nextTrack, isLoading, error } = useAudius()
+  const { currentTrack, streamUrl, nextStreamUrl, nextTrack, isLoading, error } = useAudius(vibe)
+
+  // Preload next track in a hidden audio element
+  useEffect(() => {
+    if (!nextStreamUrl) return
+    if (!preloadRef.current) {
+      preloadRef.current = new Audio()
+      preloadRef.current.preload = 'auto'
+    }
+    preloadRef.current.src = nextStreamUrl
+    preloadRef.current.load()
+  }, [nextStreamUrl])
 
   const handlePlayPause = useCallback(() => {
     const audio = audioRef.current
@@ -19,7 +34,6 @@ export default function Player() {
       setIsPlaying(false)
       wantsToPlay.current = false
     } else {
-      // If src isn't set yet, set it now — synchronously within user gesture
       if (audio.src !== streamUrl) {
         audio.src = streamUrl
         audio.load()
@@ -30,10 +44,26 @@ export default function Player() {
   }, [isPlaying, streamUrl])
 
   const handleSkip = useCallback(() => {
+    const audio = audioRef.current
+    if (audio) {
+      audio.pause()
+      audio.removeAttribute('src')
+    }
     setIsPlaying(false)
     wantsToPlay.current = true
     nextTrack()
   }, [nextTrack])
+
+  const handleVibeChange = useCallback((v) => {
+    const audio = audioRef.current
+    if (audio) {
+      audio.pause()
+      audio.removeAttribute('src')
+    }
+    setIsPlaying(false)
+    wantsToPlay.current = false
+    setVibe(v)
+  }, [])
 
   // When streamUrl changes (skip / auto-advance), load and play new track
   useEffect(() => {
@@ -48,7 +78,7 @@ export default function Player() {
     }
   }, [streamUrl])
 
-  // Fallback: if play() was called before buffering, canplay retries
+  // Retry play when buffered enough
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
@@ -76,11 +106,52 @@ export default function Player() {
     return () => audio.removeEventListener('ended', onEnded)
   }, [nextTrack])
 
+  // Auto-skip on stream error
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio) return
+
+    const onError = () => {
+      if (wantsToPlay.current) {
+        nextTrack()
+      }
+    }
+    audio.addEventListener('error', onError)
+    return () => audio.removeEventListener('error', onError)
+  }, [nextTrack])
+
+  // Stall recovery — if stuck buffering for 5s, skip
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio) return
+
+    let stallTimer = null
+    const onWaiting = () => {
+      stallTimer = setTimeout(() => {
+        if (wantsToPlay.current && audio.paused) {
+          nextTrack()
+        }
+      }, 5000)
+    }
+    const onPlaying = () => {
+      clearTimeout(stallTimer)
+    }
+    audio.addEventListener('waiting', onWaiting)
+    audio.addEventListener('playing', onPlaying)
+    return () => {
+      clearTimeout(stallTimer)
+      audio.removeEventListener('waiting', onWaiting)
+      audio.removeEventListener('playing', onPlaying)
+    }
+  }, [nextTrack])
+
   const ready = !!streamUrl
 
   return (
     <div className="flex flex-col items-center gap-10">
-      <audio ref={audioRef} preload="none" />
+      <audio ref={audioRef} preload="auto" />
+
+      <VibeSelector current={vibe} onChange={handleVibeChange} />
 
       {error && (
         <p className="text-red-400/60 text-xs">{error}</p>
@@ -91,6 +162,8 @@ export default function Player() {
       )}
 
       <TrackInfo track={currentTrack} />
+
+      <ProgressBar audioRef={audioRef} />
 
       <Controls
         isPlaying={isPlaying}

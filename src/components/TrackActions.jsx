@@ -1,46 +1,46 @@
 import { useState, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
+async function trackAction(action, userId, trackId) {
+  const res = await fetch('/api/track-action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, userId, trackId }),
+  })
+  if (!res.ok) throw new Error('Action failed')
+}
+
 export default function TrackActions({ trackId }) {
-  const { user, sdk } = useAuth()
+  const { user } = useAuth()
   const [liked, setLiked] = useState(false)
   const [reposted, setReposted] = useState(false)
 
   const handleLike = useCallback(async () => {
-    if (!sdk || !user) return
+    if (!user) return
     const next = !liked
     setLiked(next)
     try {
-      if (next) {
-        await sdk.tracks.favoriteTrack({ userId: user.userId, trackId })
-      } else {
-        await sdk.tracks.unfavoriteTrack({ userId: user.userId, trackId })
-      }
+      await trackAction(next ? 'favorite' : 'unfavorite', user.userId, trackId)
     } catch {
       setLiked(!next)
     }
-  }, [sdk, user, trackId, liked])
+  }, [user, trackId, liked])
 
   const handleRepost = useCallback(async () => {
-    if (!sdk || !user) return
+    if (!user) return
     const next = !reposted
     setReposted(next)
     try {
-      if (next) {
-        await sdk.tracks.repostTrack({ userId: user.userId, trackId })
-      } else {
-        await sdk.tracks.unrepostTrack({ userId: user.userId, trackId })
-      }
+      await trackAction(next ? 'repost' : 'unrepost', user.userId, trackId)
     } catch {
       setReposted(!next)
     }
-  }, [sdk, user, trackId, reposted])
+  }, [user, trackId, reposted])
 
   if (!user) return null
 
   return (
     <div className="flex items-center gap-4 justify-center mt-2">
-      {/* Like */}
       <button
         onClick={handleLike}
         className="transition-all duration-200 active:scale-125"
@@ -56,7 +56,6 @@ export default function TrackActions({ trackId }) {
         </svg>
       </button>
 
-      {/* Repost */}
       <button
         onClick={handleRepost}
         className="transition-all duration-200 active:scale-125"
