@@ -6,7 +6,6 @@ export function useAudius(vibe) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
-  const offsetRef = useRef(0)
   const vibeRef = useRef(vibe)
   const lastArtistRef = useRef(null)
 
@@ -14,18 +13,15 @@ export function useAudius(vibe) {
     setIsLoading(true)
     setError(null)
     try {
-      const batch = await fetchTracks({ vibe: v, offset: offsetRef.current })
-      if (batch.length === 0) {
-        offsetRef.current = 0
-        const fresh = await fetchTracks({ vibe: v, offset: 0 })
-        setTracks(fresh)
-        setCurrentIndex(0)
-        return fresh
-      } else {
-        setTracks((prev) => [...prev, ...batch])
-        offsetRef.current += batch.length
-        return batch
-      }
+      const batch = await fetchTracks({ vibe: v })
+      // Deduplicate by track ID when appending
+      setTracks((prev) => {
+        const existingIds = new Set(prev.map((t) => t.id))
+        const newTracks = batch.filter((t) => !existingIds.has(t.id))
+        if (prev.length === 0) return newTracks
+        return [...prev, ...newTracks]
+      })
+      return batch
     } catch (err) {
       setError(err.message)
       return []
@@ -37,27 +33,34 @@ export function useAudius(vibe) {
   // Reset and load when vibe changes
   useEffect(() => {
     vibeRef.current = vibe
-    offsetRef.current = 0
     lastArtistRef.current = null
     setTracks([])
     setCurrentIndex(0)
     loadTracks(vibe)
   }, [vibe, loadTracks])
 
-  // Find the next valid index, skipping same-artist back-to-back
+  // Find next index, preferring a different artist (look ahead up to 5 tracks)
   const findNextIndex = useCallback((fromIndex, trackList) => {
     const lastArtist = lastArtistRef.current
-    for (let i = fromIndex; i < trackList.length; i++) {
-      if (!lastArtist || trackList[i].user?.handle !== lastArtist) {
-        return i
+    if (!lastArtist || fromIndex >= trackList.length) {
+      return fromIndex < trackList.length ? fromIndex : -1
+    }
+
+    // Look ahead up to 5 tracks for a different artist
+    const lookAhead = Math.min(5, trackList.length - fromIndex)
+    for (let i = 0; i < lookAhead; i++) {
+      const idx = fromIndex + i
+      if (trackList[idx].user?.handle !== lastArtist) {
+        return idx
       }
     }
-    // If all remaining are same artist, just take the next one
-    return fromIndex < trackList.length ? fromIndex : -1
+    // If all 5 are same artist, just take the next one anyway
+    return fromIndex
   }, [])
 
   const nextTrack = useCallback(async () => {
-    if (currentIndex + 1 >= tracks.length - 3) {
+    // Prefetch more tracks when running low
+    if (currentIndex + 5 >= tracks.length) {
       loadTracks(vibeRef.current)
     }
 

@@ -18,26 +18,14 @@ export function blockTrack(trackId) {
   localStorage.setItem(BLOCKED_KEY, JSON.stringify([...blocked]))
 }
 
-// Weighted shuffle — higher play_count gets slight priority, recent tracks boosted
-function weightedShuffle(arr) {
-  const now = Date.now()
-  const NINETY_DAYS = 90 * 24 * 60 * 60 * 1000
-
-  const scored = arr.map((t) => {
-    // Play count weight: log scale so popular tracks get a nudge, not domination
-    const playWeight = Math.log10(Math.max(t.play_count || 1, 1))
-
-    // Freshness boost: tracks from last 90 days get 2x weight
-    const uploadedAt = t.release_date ? new Date(t.release_date).getTime()
-      : t.created_at ? new Date(t.created_at).getTime() : 0
-    const freshness = (now - uploadedAt) < NINETY_DAYS ? 2 : 1
-
-    const score = playWeight * freshness * (0.5 + Math.random())
-    return { track: t, score }
-  })
-
-  scored.sort((a, b) => b.score - a.score)
-  return scored.map((s) => s.track)
+// Fisher-Yates shuffle for true randomness
+function shuffle(arr) {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
 }
 
 export const VIBES = {
@@ -58,11 +46,25 @@ export const VIBES = {
   },
 }
 
-export async function fetchTracks({ vibe = 'lofi', limit = 50, offset = 0 } = {}) {
+// Cycle through queries per vibe
+const queryIndexes = {}
+
+export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
   const config = VIBES[vibe] || VIBES.lofi
-  const query = config.queries[Math.floor(Math.random() * config.queries.length)]
-  const sorts = ['popular', 'recent', 'relevant']
+
+  // Cycle through queries in shuffled order for variety
+  if (!(vibe in queryIndexes)) queryIndexes[vibe] = 0
+  const idx = queryIndexes[vibe]
+  queryIndexes[vibe]++
+
+  // Pick query by cycling, pick sort randomly
+  const query = config.queries[idx % config.queries.length]
+  // Favor 'relevant' to get a mix; 'popular' and 'recent' less often
+  const sorts = ['relevant', 'relevant', 'relevant', 'popular', 'recent']
   const sort = sorts[Math.floor(Math.random() * sorts.length)]
+
+  // Random offset (0-100) to get different pages of results
+  const offset = Math.floor(Math.random() * 3) * 25
 
   const params = new URLSearchParams({
     query,
@@ -80,7 +82,7 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50, offset = 0 } = {}
   const filtered = (json.data || []).filter(
     (t) => t.duration <= config.maxDuration && !blocked.has(t.id)
   )
-  return weightedShuffle(filtered)
+  return shuffle(filtered)
 }
 
 export function getStreamUrl(trackId) {

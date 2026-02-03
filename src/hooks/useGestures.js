@@ -1,15 +1,20 @@
 import { useRef, useCallback } from 'react'
 
 const SWIPE_THRESHOLD = 50
-const DOUBLE_TAP_DELAY = 300
 
-export function useGestures({ onSwipeUp, onSwipeDown, onSwipeLeft, onDoubleTapRight, onDoubleTapLeft }) {
+export function useGestures({ onSwipeUp, onSwipeLeft }) {
   const touchStart = useRef(null)
-  const lastTap = useRef({ time: 0, x: 0 })
 
   const onTouchStart = useCallback((e) => {
     const t = e.touches[0]
     touchStart.current = { x: t.clientX, y: t.clientY }
+  }, [])
+
+  const onTouchMove = useCallback((e) => {
+    // Prevent pull-to-refresh on swipe down
+    if (!touchStart.current) return
+    const dy = e.touches[0].clientY - touchStart.current.y
+    if (dy > 10) e.preventDefault()
   }, [])
 
   const onTouchEnd = useCallback((e) => {
@@ -22,34 +27,15 @@ export function useGestures({ onSwipeUp, onSwipeDown, onSwipeLeft, onDoubleTapRi
     const absDx = Math.abs(dx)
     const absDy = Math.abs(dy)
 
-    // Determine if it was a swipe
     if (absDy > SWIPE_THRESHOLD && absDy > absDx) {
       if (dy < 0) onSwipeUp?.()
-      else onSwipeDown?.()
       return
     }
     if (absDx > SWIPE_THRESHOLD && absDx > absDy) {
       if (dx < 0) onSwipeLeft?.()
       return
     }
+  }, [onSwipeUp, onSwipeLeft])
 
-    // If not a swipe, check for double-tap
-    const now = Date.now()
-    const timeDiff = now - lastTap.current.time
-    const tapX = t.clientX
-    const screenMid = window.innerWidth / 2
-
-    if (timeDiff < DOUBLE_TAP_DELAY) {
-      if (tapX > screenMid) {
-        onDoubleTapRight?.()
-      } else {
-        onDoubleTapLeft?.()
-      }
-      lastTap.current = { time: 0, x: 0 }
-    } else {
-      lastTap.current = { time: now, x: tapX }
-    }
-  }, [onSwipeUp, onSwipeDown, onSwipeLeft, onDoubleTapRight, onDoubleTapLeft])
-
-  return { onTouchStart, onTouchEnd }
+  return { onTouchStart, onTouchMove, onTouchEnd }
 }

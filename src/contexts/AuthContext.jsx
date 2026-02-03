@@ -46,7 +46,8 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(() => {
     if (!audiusSdk) return
-    audiusSdk.oauth.login({ scope: 'write', display: 'popup' })
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+    audiusSdk.oauth.login({ scope: 'write', display: isMobile ? 'fullScreen' : 'popup' })
   }, [audiusSdk])
 
   const logout = useCallback(() => {

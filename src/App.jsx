@@ -12,7 +12,7 @@ export default function App() {
         drift
       </h1>
 
-      <main className="min-h-dvh flex flex-col items-center justify-center px-4 pb-16 sm:pb-4">
+      <main className="min-h-dvh flex flex-col items-center justify-center px-4 pb-16 sm:pb-4 select-none">
         <Player />
       </main>
 
@@ -26,7 +26,7 @@ export default function App() {
         className="fixed bottom-3 sm:bottom-5 right-4 sm:right-6 flex items-center gap-2
                    text-white/25 hover:text-white/40 transition-colors duration-500"
       >
-        <span className="text-[10px] tracking-wider hidden sm:inline">powered by</span>
+        <span className="text-[10px] tracking-wider">powered by</span>
         <img
           src="/audius-logo-white.svg"
           alt="Audius"
