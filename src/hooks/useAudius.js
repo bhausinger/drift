@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { fetchTracks, getStreamUrl, blockTrack } from '../utils/audius'
+import { fetchTracks, fetchRadioTracks, getStreamUrl, blockTrack, blockArtist, getBlockedArtists, addRecentlyPlayed } from '../utils/audius'
 
 export function useAudius(vibe) {
   const [tracks, setTracks] = useState([])
@@ -13,11 +13,17 @@ export function useAudius(vibe) {
     setIsLoading(true)
     setError(null)
     try {
-      const batch = await fetchTracks({ vibe: v })
-      // Deduplicate by track ID when appending
+      let batch = await fetchTracks({ vibe: v })
+      // If too few results (e.g. most recently-played), try radio mode for wider pool
+      if (batch.length < 5) {
+        const radioBatch = await fetchRadioTracks({ vibe: v })
+        batch = [...batch, ...radioBatch]
+      }
+      const blockedArtists = getBlockedArtists()
+      // Deduplicate by track ID when appending, filter blocked artists
       setTracks((prev) => {
         const existingIds = new Set(prev.map((t) => t.id))
-        const newTracks = batch.filter((t) => !existingIds.has(t.id))
+        const newTracks = batch.filter((t) => !existingIds.has(t.id) && !blockedArtists.has(t.user?.handle))
         if (prev.length === 0) return newTracks
         return [...prev, ...newTracks]
       })
@@ -86,16 +92,28 @@ export function useAudius(vibe) {
     }
   }, [tracks, currentIndex, nextTrack])
 
+  const blockCurrentArtist = useCallback(() => {
+    const track = tracks[currentIndex]
+    if (track?.user?.handle) {
+      blockArtist(track.user.handle)
+      // Remove all tracks by this artist from the queue
+      const handle = track.user.handle
+      setTracks((prev) => prev.filter((t) => t.user?.handle !== handle))
+      nextTrack()
+    }
+  }, [tracks, currentIndex, nextTrack])
+
   const currentTrack = tracks[currentIndex] || null
   const nextIdx = findNextIndex(currentIndex + 1, tracks)
   const nextTrackData = nextIdx >= 0 ? tracks[nextIdx] : null
   const streamUrl = currentTrack ? getStreamUrl(currentTrack.id) : null
   const nextStreamUrl = nextTrackData ? getStreamUrl(nextTrackData.id) : null
 
-  // Track last artist for dedup
+  // Track last artist for dedup + mark as recently played
   useEffect(() => {
     if (currentTrack) {
       lastArtistRef.current = currentTrack.user?.handle
+      addRecentlyPlayed(currentTrack.id)
     }
   }, [currentTrack])
 
@@ -106,6 +124,7 @@ export function useAudius(vibe) {
     nextTrack,
     prevTrack,
     blockCurrent,
+    blockCurrentArtist,
     isLoading,
     error,
   }

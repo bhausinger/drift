@@ -5,14 +5,21 @@ import Controls from './Controls'
 import VibeSelector from './VibeSelector'
 import ProgressBar from './ProgressBar'
 
-export default function Player() {
-  const audioRef = useRef(null)
+export default function Player({ audioRef, playerStateRef }) {
   const preloadRef = useRef(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [vibe, setVibe] = useState('lofi')
   const wantsToPlay = useRef(false)
+  const userInteracted = useRef(false)
 
-  const { currentTrack, streamUrl, nextStreamUrl, nextTrack, prevTrack, blockCurrent, isLoading, error } = useAudius(vibe)
+  const { currentTrack, streamUrl, nextStreamUrl, nextTrack, prevTrack, blockCurrent, blockCurrentArtist, isLoading, error } = useAudius(vibe)
+
+  // Expose state to parent for handoff to Deep Dive
+  useEffect(() => {
+    if (playerStateRef) {
+      playerStateRef.current = { currentTrack, isPlaying }
+    }
+  }, [currentTrack, isPlaying, playerStateRef])
 
   // Preload next track
   useEffect(() => {
@@ -28,6 +35,7 @@ export default function Player() {
   const handlePlayPause = useCallback(() => {
     const audio = audioRef.current
     if (!audio || !streamUrl) return
+    userInteracted.current = true
 
     if (isPlaying) {
       audio.pause()
@@ -44,6 +52,7 @@ export default function Player() {
   }, [isPlaying, streamUrl])
 
   const handleSkip = useCallback(() => {
+    userInteracted.current = true
     const audio = audioRef.current
     if (audio) {
       audio.pause()
@@ -55,6 +64,7 @@ export default function Player() {
   }, [nextTrack])
 
   const handlePrev = useCallback(() => {
+    userInteracted.current = true
     const audio = audioRef.current
     if (audio) {
       audio.pause()
@@ -87,11 +97,26 @@ export default function Player() {
     setVibe(v)
   }, [])
 
+  // On mount, if audio is already playing (returning from Deep Dive), sync state
+  const didInitialSync = useRef(false)
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio || didInitialSync.current) return
+    didInitialSync.current = true
+    if (!audio.paused && audio.src) {
+      setIsPlaying(true)
+      wantsToPlay.current = true
+    }
+  }, [])
+
   // When streamUrl changes, load and play
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !streamUrl) return
     if (audio.src === streamUrl) return
+
+    // On first mount after Deep Dive, don't override audio that's already playing
+    if (!audio.paused && audio.src && didInitialSync.current && !userInteracted.current) return
 
     audio.src = streamUrl
     audio.load()
@@ -159,8 +184,6 @@ export default function Player() {
 
   return (
     <div className="flex flex-col items-center gap-6 sm:gap-8 w-full max-w-md px-4">
-      <audio ref={audioRef} preload="auto" />
-
       <VibeSelector current={vibe} onChange={handleVibeChange} />
 
       {error && (
@@ -171,7 +194,13 @@ export default function Player() {
         <div className="w-4 h-4 border border-white/20 border-t-white/60 rounded-full animate-spin" />
       )}
 
-      <TrackInfo track={currentTrack} />
+      <TrackInfo track={currentTrack} onBlockArtist={() => {
+        const audio = audioRef.current
+        if (audio) { audio.pause(); audio.removeAttribute('src') }
+        setIsPlaying(false)
+        wantsToPlay.current = true
+        blockCurrentArtist()
+      }} />
 
       <ProgressBar audioRef={audioRef} />
 
