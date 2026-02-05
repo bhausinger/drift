@@ -38,13 +38,13 @@ export const VIBES = {
   dnb: {
     label: 'dnb',
     queries: ['drum and bass', 'liquid dnb', 'dnb'],
-    maxDuration: 8 * 60,
+    maxDuration: 6 * 60,
     genres: ['Drum & Bass'],
   },
   bass: {
     label: 'bass',
     queries: ['dubstep', 'bass music', 'trap', 'bass heavy'],
-    maxDuration: 7 * 60,
+    maxDuration: 6 * 60,
     genres: ['Dubstep', 'Trap'],
   },
 }
