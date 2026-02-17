@@ -4,7 +4,7 @@ import {
   searchDJTracks, getStreamUrl, formatDuration, getImageFallback, fetchRandomMix,
   DJ_GENRES, DJ_KEYS, DJ_MOODS,
   getDraftPlaylist, saveDraftPlaylist, fetchUserPlaylists, fetchPlaylistTracks,
-  getBlockedArtists, blockArtist,
+  getBlockedArtists, blockArtist, resolveTrackUrl,
 } from '../utils/audius'
 
 export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
@@ -70,6 +70,9 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   const [createArtwork, setCreateArtwork] = useState(null)
   const artworkInputRef = useRef(null)
 
+  // Draft metadata — stored when user fills out the create modal
+  const [draftMeta, setDraftMeta] = useState(null)
+
   // Fetch user's Audius playlists when logged in and panel opens
   useEffect(() => {
     if (!user || !showPlaylist) return
@@ -84,7 +87,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
 
   // Open an existing playlist — fetch its tracks and show detail view
   const openPlaylist = useCallback(async (pl) => {
-    setActivePlaylist({ id: pl.id, name: pl.playlistName || pl.playlist_name || 'Untitled', artwork: pl.artwork?.['150x150'] || null, tracks: [], isNew: false })
+    setActivePlaylist({ id: pl.id, name: pl.playlistName || pl.playlist_name || 'Untitled', artwork: pl.artwork?.['150x150'] || null, tracks: [], isNew: false, description: pl.description || '', isPrivate: pl.is_private ?? pl.isPrivate ?? false })
     setLoadingPlaylistTracks(true)
     try {
       const tracks = await fetchPlaylistTracks(pl.id)
@@ -96,8 +99,8 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
 
   // Open the draft (new) playlist detail view
   const openDraftPlaylist = useCallback(() => {
-    setActivePlaylist({ id: null, name: playlistName || 'New Playlist', artwork: null, tracks: playlist, isNew: true })
-  }, [playlist, playlistName])
+    setActivePlaylist({ id: null, name: draftMeta?.name || playlistName || 'New Playlist', artwork: draftMeta?.artwork || null, tracks: playlist, isNew: true })
+  }, [playlist, playlistName, draftMeta])
 
   // Go back to the library list
   const backToLibrary = useCallback(() => {
@@ -264,8 +267,31 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
     return () => document.removeEventListener('mousedown', onClick)
   }, [menuTrackId])
 
-  const addToPlaylist = useCallback((track) => {
-    if (activePlaylist?.isNew) {
+  // Playlist picker state: { trackId, x, y } when showing picker, null when hidden
+  const [playlistPicker, setPlaylistPicker] = useState(null)
+  const pickerRef = useRef(null)
+
+  // Close picker on click outside
+  useEffect(() => {
+    if (!playlistPicker) return
+    const onClick = (e) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) setPlaylistPicker(null)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [playlistPicker])
+
+  // Show the playlist picker for a track
+  const showPlaylistPicker = useCallback((track, e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    setPlaylistPicker({ track, x: rect.right, y: rect.top })
+    setMenuTrackId(null)
+  }, [])
+
+  // Direct add — used when we already know which playlist (active one or picked from dropdown)
+  const addToPlaylistDirect = useCallback((track, targetPlaylistId) => {
+    // If a specific playlist ID is given, add to that playlist
+    if (targetPlaylistId === 'draft' || (!targetPlaylistId && activePlaylist?.isNew)) {
       // Adding to draft
       setPlaylist((prev) => {
         if (prev.some((t) => t.id === track.id)) return prev
@@ -276,8 +302,30 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
         if (prev.tracks.some((t) => t.id === track.id)) return prev
         return { ...prev, tracks: [...prev.tracks, track] }
       })
+    } else if (targetPlaylistId && targetPlaylistId !== 'draft') {
+      // Adding to a specific existing Audius playlist
+      if (activePlaylist?.id === targetPlaylistId) {
+        setActivePlaylist((prev) => {
+          if (!prev) return prev
+          if (prev.tracks.some((t) => t.id === track.id)) return prev
+          return { ...prev, tracks: [...prev.tracks, track] }
+        })
+      }
+      if (user) {
+        fetch('/api/playlist-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'addTrack', userId: user.userId, playlistId: targetPlaylistId, trackId: track.id }),
+        }).catch(() => {
+          if (activePlaylist?.id === targetPlaylistId) {
+            setActivePlaylist((prev) => prev ? { ...prev, tracks: prev.tracks.filter((t) => t.id !== track.id) } : prev)
+          }
+        })
+      }
+      setToast(`Added to playlist`)
+      setTimeout(() => setToast(null), 1500)
     } else if (activePlaylist && !activePlaylist.isNew) {
-      // Adding to existing Audius playlist — optimistic update + API call
+      // Adding to current active existing playlist
       setActivePlaylist((prev) => {
         if (!prev) return prev
         if (prev.tracks.some((t) => t.id === track.id)) return prev
@@ -289,19 +337,32 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'addTrack', userId: user.userId, playlistId: activePlaylist.id, trackId: track.id }),
         }).catch(() => {
-          // Revert on failure
           setActivePlaylist((prev) => prev ? { ...prev, tracks: prev.tracks.filter((t) => t.id !== track.id) } : prev)
         })
       }
     } else {
-      // No active playlist — add to draft
+      // No active playlist — add to draft and auto-activate draft view
       setPlaylist((prev) => {
         if (prev.some((t) => t.id === track.id)) return prev
-        return [...prev, track]
+        const updated = [...prev, track]
+        setActivePlaylist({
+          id: null,
+          name: draftMeta?.name || playlistName || 'New Playlist',
+          artwork: draftMeta?.artwork || null,
+          tracks: updated,
+          isNew: true,
+        })
+        return updated
       })
     }
     setMenuTrackId(null)
-  }, [activePlaylist, user])
+    setPlaylistPicker(null)
+  }, [activePlaylist, user, draftMeta, playlistName])
+
+  // Legacy wrapper — used by paste URLs and now-playing menu
+  const addToPlaylist = useCallback((track) => {
+    addToPlaylistDirect(track)
+  }, [addToPlaylistDirect])
 
   const removeFromPlaylist = useCallback((trackId) => {
     if (activePlaylist?.isNew) {
@@ -382,6 +443,51 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
     setMenuTrackId(null)
   }, [])
 
+  // Copy all track URLs from the active playlist
+  const handleCopyAllUrls = useCallback(() => {
+    const tracks = activePlaylist ? activePlaylist.tracks : playlist
+    if (tracks.length === 0) return
+    const urls = tracks.map((t) =>
+      t.permalink ? `https://audius.co${t.permalink}` : `https://audius.co/tracks/${t.id}`
+    ).join('\n')
+    navigator.clipboard.writeText(urls).then(() => {
+      setToast(`Copied ${tracks.length} track URL${tracks.length !== 1 ? 's' : ''}`)
+      setTimeout(() => setToast(null), 2000)
+    })
+  }, [activePlaylist, playlist])
+
+  // Paste URLs to add tracks — accepts newline/comma separated Audius URLs
+  const [pasteLoading, setPasteLoading] = useState(false)
+  const handlePasteUrls = useCallback(async () => {
+    let text
+    try {
+      text = await navigator.clipboard.readText()
+    } catch {
+      setToast('Could not read clipboard')
+      setTimeout(() => setToast(null), 2000)
+      return
+    }
+    // Extract URLs (audius.co links)
+    const urls = text.split(/[\n,\s]+/).filter((s) => s.includes('audius.co')).map((s) => s.trim()).filter(Boolean)
+    if (urls.length === 0) {
+      setToast('No Audius URLs found in clipboard')
+      setTimeout(() => setToast(null), 2000)
+      return
+    }
+    setPasteLoading(true)
+    let added = 0
+    for (const url of urls) {
+      const track = await resolveTrackUrl(url)
+      if (track) {
+        addToPlaylist(track)
+        added++
+      }
+    }
+    setPasteLoading(false)
+    setToast(added > 0 ? `Added ${added} track${added !== 1 ? 's' : ''}` : 'No tracks found')
+    setTimeout(() => setToast(null), 2000)
+  }, [addToPlaylist])
+
   const activeTracks = activePlaylist ? activePlaylist.tracks : playlist
   const totalDuration = activeTracks.reduce((sum, t) => sum + (t.duration || 0), 0)
 
@@ -401,8 +507,126 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
     reader.readAsDataURL(file)
   }, [])
 
-  const handleCreateNew = useCallback(async () => {
-    if (!user || playlist.length === 0 || !playlistName.trim()) return
+  // Edit playlist modal state
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [editIsPrivate, setEditIsPrivate] = useState(true)
+  const [editArtwork, setEditArtwork] = useState(null)
+  const [editSaving, setEditSaving] = useState(false)
+  const editArtworkInputRef = useRef(null)
+
+  const openEditModal = useCallback(() => {
+    if (!activePlaylist || activePlaylist.isNew) return
+    setEditName(activePlaylist.name || '')
+    setEditDescription(activePlaylist.description || '')
+    setEditIsPrivate(activePlaylist.isPrivate ?? true)
+    setEditArtwork(null) // null means "no change"
+    setShowEditModal(true)
+  }, [activePlaylist])
+
+  const handleEditArtworkSelect = useCallback((e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setEditArtwork(reader.result)
+    reader.readAsDataURL(file)
+  }, [])
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!user || !activePlaylist || activePlaylist.isNew) return
+    setEditSaving(true)
+    try {
+      const metadata = {}
+      if (editName.trim() && editName.trim() !== activePlaylist.name) metadata.playlistName = editName.trim()
+      if (editDescription.trim() !== (activePlaylist.description || '')) metadata.description = editDescription.trim()
+      if (editIsPrivate !== activePlaylist.isPrivate) metadata.isPrivate = editIsPrivate
+
+      const body = {
+        action: 'updatePlaylist',
+        userId: user.userId,
+        playlistId: activePlaylist.id,
+        metadata,
+      }
+      if (editArtwork) body.artworkUrl = editArtwork
+
+      await fetch('/api/playlist-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+
+      // Optimistic update
+      setActivePlaylist((prev) => prev ? {
+        ...prev,
+        name: editName.trim() || prev.name,
+        description: editDescription.trim(),
+        isPrivate: editIsPrivate,
+        artwork: editArtwork || prev.artwork,
+      } : prev)
+      setUserPlaylists((prev) => prev.map((p) =>
+        p.id === activePlaylist.id ? {
+          ...p,
+          playlistName: editName.trim() || p.playlistName || p.playlist_name,
+          playlist_name: editName.trim() || p.playlist_name || p.playlistName,
+          description: editDescription.trim(),
+          is_private: editIsPrivate,
+          artwork: editArtwork ? { '150x150': editArtwork } : p.artwork,
+        } : p
+      ))
+      setShowEditModal(false)
+      setToast('Playlist updated')
+      setTimeout(() => setToast(null), 2000)
+    } catch (err) {
+      setToast(`Error: ${err.message}`)
+      setTimeout(() => setToast(null), 3000)
+    } finally {
+      setEditSaving(false)
+    }
+  }, [user, activePlaylist, editName, editDescription, editIsPrivate, editArtwork])
+
+  // Start radio from playlist — use the genres/tags from playlist tracks as seeds
+  const handlePlaylistRadio = useCallback(async () => {
+    if (!activePlaylist || activePlaylist.tracks.length === 0) return
+    setSearching(true)
+    setSearchError(null)
+    const tracks = activePlaylist.tracks
+    // Collect genres from playlist tracks
+    const genres = [...new Set(tracks.map((t) => t.genre).filter(Boolean))]
+    const playlistName = activePlaylist.name
+    setActivePlaylist(null)
+    try {
+      const results = await searchDJTracks({
+        query: genres.length === 0 ? playlistName : '',
+        genres: genres.slice(0, 3),
+      })
+      setRawResults(results)
+    } catch (err) {
+      setSearchError(err.message)
+    } finally {
+      setSearching(false)
+    }
+  }, [activePlaylist])
+
+  // Create a local draft from the modal — does NOT call the API
+  const handleStartDraft = useCallback(() => {
+    if (!playlistName.trim()) return
+    const meta = {
+      name: playlistName.trim(),
+      description: createDescription.trim(),
+      isPrivate: createIsPrivate,
+      artwork: createArtwork || null,
+    }
+    setDraftMeta(meta)
+    setShowCreateModal(false)
+    // Open the draft as active playlist
+    setActivePlaylist({ id: null, name: meta.name, artwork: meta.artwork, tracks: playlist, isNew: true })
+    setShowPlaylist(true)
+  }, [playlistName, createDescription, createIsPrivate, createArtwork, playlist])
+
+  // Publish the draft playlist to Audius
+  const handlePublishPlaylist = useCallback(async () => {
+    if (!user || !draftMeta?.name) return
     setSaving(true)
     setSaveResult(null)
     try {
@@ -411,39 +635,58 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: user.userId,
-          playlistName: playlistName.trim(),
+          playlistName: draftMeta.name,
           trackIds: playlist.map((t) => t.id),
-          description: createDescription.trim(),
-          isPrivate: createIsPrivate,
-          artworkUrl: createArtwork || undefined,
+          description: draftMeta.description || '',
+          isPrivate: draftMeta.isPrivate !== false,
+          artworkUrl: draftMeta.artwork || undefined,
         }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.error || 'Failed to save')
       }
+      const data = await res.json()
+      const playlistId = data.playlistId
+
+      // Optimistic update — set the new playlist as active immediately
+      setActivePlaylist({
+        id: playlistId,
+        name: draftMeta.name,
+        artwork: draftMeta.artwork,
+        tracks: [...playlist],
+        isNew: false,
+      })
       setSaveResult('Playlist created on Audius!')
-      setShowCreateModal(false)
-      // Refresh library and open the newly created playlist
-      if (user) {
-        const playlists = await fetchUserPlaylists(user.userId)
-        setUserPlaylists(playlists)
-        // The newest playlist should be first or find by name
-        const newPl = playlists.find((p) => p.playlistName === playlistName.trim())
-        if (newPl) {
-          openPlaylist(newPl)
-        } else {
-          setActivePlaylist(null)
-        }
-      }
+
+      // Optimistically add to sidebar playlist list immediately
+      setUserPlaylists((prev) => [{
+        id: playlistId,
+        playlist_name: draftMeta.name,
+        playlistName: draftMeta.name,
+        is_private: draftMeta.isPrivate,
+        artwork: draftMeta.artwork ? { '150x150': draftMeta.artwork } : null,
+        track_count: playlist.length,
+        description: draftMeta.description || '',
+      }, ...prev])
+
       setPlaylist([])
       setPlaylistName('')
+      setDraftMeta(null)
+
+      // Background refresh of sidebar after a delay to let Audius index
+      setTimeout(async () => {
+        try {
+          const playlists = await fetchUserPlaylists(user.userId)
+          if (playlists.length > 0) setUserPlaylists(playlists)
+        } catch {}
+      }, 5000)
     } catch (err) {
       setSaveResult(`Error: ${err.message}`)
     } finally {
       setSaving(false)
     }
-  }, [user, playlist, playlistName, createDescription, createIsPrivate, createArtwork])
+  }, [user, playlist, draftMeta])
 
   const artwork = (track) => track?.artwork?.['150x150'] || track?.artwork?.['480x480'] || null
 
@@ -755,6 +998,28 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
               </button>
             </div>
 
+            {/* Show current draft in sidebar */}
+            {draftMeta && (
+              <div className="px-4 pb-1">
+                <button
+                  onClick={openDraftPlaylist}
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all duration-200 group text-left
+                    ${activePlaylist?.isNew ? 'bg-purple-500/10 border border-purple-500/20' : 'hover:bg-white/[0.04] border border-transparent'}`}
+                >
+                  <div className="w-8 h-8 rounded-md overflow-hidden bg-purple-500/10 flex-shrink-0 flex items-center justify-center">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-purple-300/60">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-[11px] truncate ${activePlaylist?.isNew ? 'text-purple-200' : 'text-white/90'}`}>{draftMeta.name}</p>
+                    <p className="text-white/40 text-[9px]">{playlist.length} tracks · draft</p>
+                  </div>
+                </button>
+              </div>
+            )}
+
             <div className="px-4"><div className="border-b border-white/[0.06]" /></div>
 
             {/* Existing playlists list */}
@@ -836,9 +1101,78 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-white/90 text-sm font-medium truncate">{activePlaylist.name}</h3>
-                  <p className="text-white/40 text-[10px]">{activePlaylist.tracks.length} track{activePlaylist.tracks.length !== 1 ? 's' : ''}</p>
+                  <p className="text-white/40 text-[10px]">
+                    {activePlaylist.tracks.length} track{activePlaylist.tracks.length !== 1 ? 's' : ''}
+                    {activePlaylist.isNew && ' · draft'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {activePlaylist.tracks.length > 0 && (
+                    <button
+                      onClick={handlePlaylistRadio}
+                      className="p-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80
+                                 rounded-lg transition-all duration-300"
+                      title="Start radio from playlist"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="2" />
+                        <path d="M16.24 7.76a6 6 0 0 1 0 8.49" />
+                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                        <path d="M7.76 16.24a6 6 0 0 1 0-8.49" />
+                        <path d="M4.93 19.07a10 10 0 0 1 0-14.14" />
+                      </svg>
+                    </button>
+                  )}
+                  {!activePlaylist.isNew && (
+                    <button
+                      onClick={openEditModal}
+                      className="p-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80
+                                 rounded-lg transition-all duration-300"
+                      title="Edit playlist"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                  )}
+                  {activePlaylist.tracks.length > 0 && (
+                    <button
+                      onClick={handleCopyAllUrls}
+                      className="px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80 text-[10px]
+                                 tracking-wider rounded-lg transition-all duration-300 uppercase"
+                      title="Copy all track URLs"
+                    >
+                      copy urls
+                    </button>
+                  )}
+                  <button
+                    onClick={handlePasteUrls}
+                    disabled={pasteLoading}
+                    className="px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80 text-[10px]
+                               tracking-wider rounded-lg transition-all duration-300 disabled:opacity-40 uppercase"
+                    title="Paste Audius URLs from clipboard"
+                  >
+                    {pasteLoading ? '...' : 'paste urls'}
+                  </button>
+                  {activePlaylist.isNew && (
+                    <button
+                      onClick={handlePublishPlaylist}
+                      disabled={saving || !draftMeta?.name}
+                      className="px-3 py-1.5 bg-purple-500/25 hover:bg-purple-500/35 text-purple-200 text-[10px]
+                                 tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30
+                                 disabled:cursor-not-allowed uppercase"
+                    >
+                      {saving ? 'saving...' : 'save to audius'}
+                    </button>
+                  )}
                 </div>
               </div>
+              {saveResult && (
+                <p className={`text-[10px] px-4 pb-2 ${saveResult.startsWith('Error') ? 'text-red-400/80' : 'text-emerald-400/80'}`}>
+                  {saveResult}
+                </p>
+              )}
 
               {loadingPlaylistTracks ? (
                 <div className="flex justify-center py-16">
@@ -849,7 +1183,9 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                   <svg className="text-white/20" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
                   </svg>
-                  <p className="text-white/40 text-xs">No tracks in this playlist</p>
+                  <p className="text-white/40 text-xs">
+                    {activePlaylist.isNew ? 'Search for tracks and tap + to add them' : 'No tracks in this playlist'}
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-0.5">
@@ -1024,10 +1360,24 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                           <span className="w-10 text-right">{formatDuration(track.duration)}</span>
                         </div>
 
+                        {/* Start radio from track */}
+                        <button
+                          onClick={() => handleStartRadio(track)}
+                          className="flex-shrink-0 p-1 text-white/30 hover:text-purple-300 transition-colors duration-200"
+                          aria-label="Start radio"
+                          title="Start radio"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <circle cx="12" cy="12" r="2" />
+                            <path d="M16.24 7.76a6 6 0 0 1 0 8.49" />
+                            <path d="M7.76 16.24a6 6 0 0 1 0-8.49" />
+                          </svg>
+                        </button>
+
                         {/* Add to playlist button (visible when panel is open) */}
-                        {showPlaylist && activePlaylist && (
+                        {showPlaylist && (
                           <button
-                            onClick={() => addToPlaylist(track)}
+                            onClick={(e) => showPlaylistPicker(track, e)}
                             disabled={inActive}
                             className={`flex-shrink-0 p-1 transition-colors duration-200
                               ${inActive ? 'text-purple-400/50' : 'text-white/30 hover:text-purple-300'}`}
@@ -1065,16 +1415,46 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                               className="absolute right-0 top-full mt-1 z-50 bg-black/80 backdrop-blur-md border border-white/10
                                          rounded-lg shadow-xl shadow-black/50 py-1 min-w-[170px]"
                             >
+                              <p className="px-3 py-1 text-[9px] text-white/30 tracking-wider uppercase">Add to playlist</p>
+                              {draftMeta && (
+                                <button
+                                  onClick={() => addToPlaylistDirect(track, 'draft')}
+                                  className="w-full text-left px-3 py-1.5 text-xs text-white/80 hover:bg-white/[0.06] hover:text-white transition-colors flex items-center gap-2"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-purple-300/60">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                  </svg>
+                                  {draftMeta.name}
+                                </button>
+                              )}
+                              {userPlaylists.map((pl) => (
+                                <button
+                                  key={pl.id}
+                                  onClick={() => addToPlaylistDirect(track, pl.id)}
+                                  className="w-full text-left px-3 py-1.5 text-xs text-white/80 hover:bg-white/[0.06] hover:text-white transition-colors flex items-center gap-2 truncate"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
+                                    <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
+                                    <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
+                                  </svg>
+                                  <span className="truncate">{pl.playlistName || pl.playlist_name || 'Untitled'}</span>
+                                </button>
+                              ))}
+                              {!draftMeta && userPlaylists.length === 0 && (
+                                <p className="px-3 py-1.5 text-xs text-white/30">No playlists yet</p>
+                              )}
+                              <div className="my-1 border-t border-white/[0.06]" />
                               <button
-                                onClick={() => addToPlaylist(track)}
-                                className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors
-                                  ${inActive ? 'text-purple-300/80' : 'text-white/80 hover:bg-white/[0.06] hover:text-white'}`}
+                                onClick={() => { handleStartRadio(track); setMenuTrackId(null) }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-white/80 hover:bg-white/[0.06] hover:text-white transition-colors flex items-center gap-2"
                               >
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <line x1="12" y1="5" x2="12" y2="19" />
-                                  <line x1="5" y1="12" x2="19" y2="12" />
+                                  <circle cx="12" cy="12" r="2" />
+                                  <path d="M16.24 7.76a6 6 0 0 1 0 8.49" />
+                                  <path d="M7.76 16.24a6 6 0 0 1 0-8.49" />
                                 </svg>
-                                {inActive ? 'In playlist' : 'Add to playlist'}
+                                Start radio
                               </button>
                               <button
                                 onClick={() => handleCopyLink(track)}
@@ -1109,6 +1489,46 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
         </div>
       </div>
 
+      {/* Playlist picker dropdown (floating) */}
+      {playlistPicker && (
+        <div
+          ref={pickerRef}
+          className="fixed z-50 bg-black/90 backdrop-blur-md border border-white/10
+                     rounded-lg shadow-xl shadow-black/50 py-1 min-w-[180px] max-w-[240px] max-h-[300px] overflow-y-auto"
+          style={{ top: playlistPicker.y, right: Math.max(16, window.innerWidth - playlistPicker.x + 8) }}
+        >
+          <p className="px-3 py-1 text-[9px] text-white/30 tracking-wider uppercase">Add to playlist</p>
+          {draftMeta && (
+            <button
+              onClick={() => addToPlaylistDirect(playlistPicker.track, 'draft')}
+              className="w-full text-left px-3 py-1.5 text-xs text-white/80 hover:bg-white/[0.06] hover:text-white transition-colors flex items-center gap-2"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-purple-300/60 flex-shrink-0">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+              <span className="truncate">{draftMeta.name}</span>
+            </button>
+          )}
+          {userPlaylists.map((pl) => (
+            <button
+              key={pl.id}
+              onClick={() => addToPlaylistDirect(playlistPicker.track, pl.id)}
+              className="w-full text-left px-3 py-1.5 text-xs text-white/80 hover:bg-white/[0.06] hover:text-white transition-colors flex items-center gap-2"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0 text-white/40">
+                <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
+                <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
+              </svg>
+              <span className="truncate">{pl.playlistName || pl.playlist_name || 'Untitled'}</span>
+            </button>
+          ))}
+          {!draftMeta && userPlaylists.length === 0 && (
+            <p className="px-3 py-1.5 text-xs text-white/30">No playlists yet</p>
+          )}
+        </div>
+      )}
+
       {/* Toast notification */}
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-black/80 backdrop-blur-md border border-white/10
@@ -1119,7 +1539,8 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
 
       {/* Now playing bar with like/repost */}
       {nowPlaying && (
-        <div className="flex-shrink-0 border-t border-white/[0.08] bg-black/20 backdrop-blur-md">
+        <div className="flex-shrink-0 bg-black/20 backdrop-blur-md">
+          <div className="max-w-4xl mx-auto px-6 sm:px-8">
           {/* Seek bar */}
           <div
             className="relative h-3 group/seek cursor-pointer flex items-center"
@@ -1159,7 +1580,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
               </div>
             </div>
           </div>
-          <div className="mx-auto px-4 sm:px-8 py-2.5 flex items-center">
+          <div className="py-2 flex items-center">
             {/* Left — artwork + info */}
             <div className="flex items-center gap-2.5 min-w-0 w-1/3">
               <div className="w-10 h-10 rounded-md overflow-hidden bg-white/[0.06] flex-shrink-0">
@@ -1320,6 +1741,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
             </div>
             </div>
           </div>
+          </div>
         </div>
       )}
 
@@ -1420,27 +1842,130 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
               </div>
             </button>
 
-            {/* Track count summary */}
+            {/* Info text */}
             <p className="text-white/40 text-[10px]">
-              {playlist.length} track{playlist.length !== 1 ? 's' : ''} · {formatDuration(totalDuration)}
+              Create a draft playlist, then add tracks and save to Audius.
             </p>
 
-            {/* Create button */}
+            {/* Create draft button */}
             <button
-              onClick={handleCreateNew}
-              disabled={saving || !playlistName.trim()}
+              onClick={handleStartDraft}
+              disabled={!playlistName.trim()}
               className="w-full py-2.5 bg-purple-500/25 hover:bg-purple-500/35 text-purple-200 text-[11px]
                          tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30
                          disabled:cursor-not-allowed uppercase"
             >
-              {saving ? 'creating...' : 'create playlist'}
+              create playlist
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Edit playlist modal */}
+      {showEditModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowEditModal(false) }}
+        >
+          <div className="bg-neutral-900/95 border border-white/10 rounded-2xl shadow-2xl shadow-black/60
+                          w-[340px] max-w-[90vw] p-5 space-y-4 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <h3 className="text-white/90 text-xs tracking-[0.2em] uppercase">Edit Playlist</h3>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="text-white/40 hover:text-white/70 transition-colors p-0.5"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Artwork upload */}
+            <div className="flex items-start gap-4">
+              <button
+                onClick={() => editArtworkInputRef.current?.click()}
+                className="w-24 h-24 flex-shrink-0 rounded-xl border border-dashed border-white/15 hover:border-purple-500/40
+                           bg-white/[0.04] hover:bg-white/[0.06] transition-all duration-300 overflow-hidden
+                           flex items-center justify-center group"
+              >
+                {editArtwork || activePlaylist?.artwork ? (
+                  <img src={editArtwork || activePlaylist?.artwork} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="flex flex-col items-center gap-1.5 text-white/30 group-hover:text-white/50 transition-colors">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                      <circle cx="8.5" cy="8.5" r="1.5" />
+                      <polyline points="21 15 16 10 5 21" />
+                    </svg>
+                    <span className="text-[9px] tracking-wider uppercase">artwork</span>
+                  </div>
+                )}
+              </button>
+              <input
+                ref={editArtworkInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleEditArtworkSelect}
+                className="hidden"
+              />
+
+              <div className="flex-1 space-y-2.5 min-w-0">
+                <input
+                  type="text"
+                  placeholder="Playlist name..."
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white
+                             placeholder:text-white/40 focus:outline-none focus:border-purple-500/40 transition-colors duration-300"
+                />
+                <textarea
+                  placeholder="Description (optional)"
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  rows={2}
+                  className="w-full bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-xs text-white
+                             placeholder:text-white/40 focus:outline-none focus:border-purple-500/40 transition-colors duration-300
+                             resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Private/Public toggle */}
+            <button
+              onClick={() => setEditIsPrivate((v) => !v)}
+              className="flex items-center gap-2.5 w-full group"
+            >
+              <div className={`w-8 h-[18px] rounded-full relative transition-colors duration-300
+                ${editIsPrivate ? 'bg-purple-500/30' : 'bg-white/10'}`}>
+                <div className={`absolute top-[2px] w-[14px] h-[14px] rounded-full transition-all duration-300 shadow-sm
+                  ${editIsPrivate ? 'left-[15px] bg-purple-400' : 'left-[2px] bg-white/50'}`} />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                     className={`transition-colors duration-300 ${editIsPrivate ? 'text-purple-300' : 'text-white/40'}`}>
+                  {editIsPrivate ? (
+                    <><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></>
+                  ) : (
+                    <><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></>
+                  )}
+                </svg>
+                <span className={`text-[11px] tracking-wider ${editIsPrivate ? 'text-purple-200' : 'text-white/50'}`}>
+                  {editIsPrivate ? 'Private' : 'Public'}
+                </span>
+              </div>
             </button>
 
-            {saveResult && (
-              <p className={`text-[10px] text-center ${saveResult.startsWith('Error') ? 'text-red-400/80' : 'text-emerald-400/80'}`}>
-                {saveResult}
-              </p>
-            )}
+            {/* Save button */}
+            <button
+              onClick={handleSaveEdit}
+              disabled={editSaving || !editName.trim()}
+              className="w-full py-2.5 bg-purple-500/25 hover:bg-purple-500/35 text-purple-200 text-[11px]
+                         tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30
+                         disabled:cursor-not-allowed uppercase"
+            >
+              {editSaving ? 'saving...' : 'save changes'}
+            </button>
           </div>
         </div>
       )}

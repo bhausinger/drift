@@ -46,6 +46,17 @@ export default async function handler(req, res) {
         await s.playlists.removeTrackFromPlaylist({ userId, playlistId, trackId })
         return res.status(200).json({ ok: true })
       }
+      case 'updatePlaylist': {
+        const { metadata } = req.body
+        if (!metadata) return res.status(400).json({ error: 'Missing metadata' })
+        await s.playlists.updatePlaylist({
+          userId,
+          playlistId,
+          metadata,
+          coverArtFile: req.body.artworkUrl || undefined,
+        })
+        return res.status(200).json({ ok: true })
+      }
       default:
         return res.status(400).json({ error: 'Invalid action' })
     }

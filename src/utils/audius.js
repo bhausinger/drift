@@ -478,13 +478,29 @@ export async function fetchUserPlaylists(userId) {
     )
     if (!res.ok) break
     const json = await res.json()
-    const page = (json.data || []).filter((p) => !p.isAlbum)
+    const page = (json.data || []).filter((p) => !p.isAlbum && !p.is_album)
     all.push(...page)
     // If we got fewer than limit results, we've reached the end
     if (!json.data || json.data.length < limit) break
     offset += limit
   }
   return all
+}
+
+// Resolve an Audius URL to a track object
+// Accepts URLs like https://audius.co/artist/track-name or audius.co/artist/track-name
+export async function resolveTrackUrl(url) {
+  // Normalize: ensure https:// prefix
+  let normalized = url.trim()
+  if (!normalized.startsWith('http')) normalized = `https://${normalized}`
+  try {
+    const res = await fetch(`${API_HOST}/v1/resolve?url=${encodeURIComponent(normalized)}&app_name=${APP_NAME}`)
+    if (!res.ok) return null
+    const json = await res.json()
+    return json.data || null
+  } catch {
+    return null
+  }
 }
 
 // Fetch tracks for a specific playlist (full track objects)

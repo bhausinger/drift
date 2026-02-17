@@ -20,8 +20,8 @@ export default async function handler(req, res) {
 
   const { userId, playlistName, trackIds, description, isPrivate, artworkUrl } = req.body
 
-  if (!userId || !playlistName || !trackIds?.length) {
-    return res.status(400).json({ error: 'Missing userId, playlistName, or trackIds' })
+  if (!userId || !playlistName) {
+    return res.status(400).json({ error: 'Missing userId or playlistName' })
   }
 
   const s = getSdk()
@@ -39,10 +39,11 @@ export default async function handler(req, res) {
     })
     const playlistId = result.playlistId || result
     // Add tracks one by one after creation
-    for (const trackId of trackIds) {
+    const ids = trackIds || []
+    for (const trackId of ids) {
       await s.playlists.addTrackToPlaylist({ userId, playlistId, trackId })
     }
-    return res.status(200).json({ playlistId })
+    return res.status(200).json({ playlistId, trackIds: ids })
   } catch (err) {
     return res.status(500).json({ error: err.message || 'Failed to create playlist' })
   }
