@@ -593,14 +593,26 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
     const tracks = activePlaylist.tracks
     // Collect genres from playlist tracks
     const genres = [...new Set(tracks.map((t) => t.genre).filter(Boolean))]
-    const playlistName = activePlaylist.name
+    const plName = activePlaylist.name
     setActivePlaylist(null)
     try {
-      const results = await searchDJTracks({
-        query: genres.length === 0 ? playlistName : '',
+      const radioTracks = await searchDJTracks({
+        query: genres.length === 0 ? plName : '',
         genres: genres.slice(0, 3),
       })
-      setRawResults(results)
+      setRawResults(radioTracks)
+      // Auto-play the first result
+      if (radioTracks.length > 0) {
+        const first = radioTracks[0]
+        const audio = djAudioRef.current
+        if (audio) {
+          audio.src = getStreamUrl(first.id)
+          audio.load()
+          audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
+          setNowPlaying(first)
+          setCurrentTime(0)
+        }
+      }
     } catch (err) {
       setSearchError(err.message)
     } finally {
@@ -724,6 +736,18 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
         genres: genre ? [genre] : [],
       })
       setRawResults(tracks)
+      // Auto-play the first result
+      if (tracks.length > 0) {
+        const first = tracks[0]
+        const audio = djAudioRef.current
+        if (audio) {
+          audio.src = getStreamUrl(first.id)
+          audio.load()
+          audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
+          setNowPlaying(first)
+          setCurrentTime(0)
+        }
+      }
     } catch (err) {
       setSearchError(err.message)
     } finally {
