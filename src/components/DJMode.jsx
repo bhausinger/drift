@@ -21,6 +21,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   const [selectedKey, setSelectedKey] = useState('')
   const [selectedMood, setSelectedMood] = useState('')
   const [maxDuration, setMaxDuration] = useState('')
+  const [releasedWithin, setReleasedWithin] = useState('')
 
   // Results — rawResults from API, filtered live by BPM/key/mood/genre
   const [rawResults, setRawResults] = useState([])
@@ -160,6 +161,19 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
     const maxBpm = bpmMax ? Number(bpmMax) : null
     const maxDur = maxDuration ? Number(maxDuration) * 60 : null
     const blockedArtists = getBlockedArtists()
+    // Date cutoff for release date filter
+    let dateCutoff = null
+    if (releasedWithin) {
+      const now = new Date()
+      const cutoffs = {
+        '1d': new Date(now - 24 * 60 * 60 * 1000),
+        '7d': new Date(now - 7 * 24 * 60 * 60 * 1000),
+        '30d': new Date(now - 30 * 24 * 60 * 60 * 1000),
+        '6m': new Date(now.getFullYear(), now.getMonth() - 6, now.getDate()),
+        '1y': new Date(now.getFullYear(), 0, 1),
+      }
+      dateCutoff = cutoffs[releasedWithin] || null
+    }
     return rawResults.filter((t) => {
       if (blockedArtists.has(t.user?.handle)) return false
       if (minBpm && t.bpm && t.bpm < minBpm) return false
@@ -167,9 +181,13 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
       if (selectedKey && t.musical_key && t.musical_key !== selectedKey) return false
       if (selectedMood && t.mood && t.mood.toLowerCase() !== selectedMood.toLowerCase()) return false
       if (maxDur && t.duration > maxDur) return false
+      if (dateCutoff) {
+        const released = t.release_date ? new Date(t.release_date) : t.created_at ? new Date(t.created_at) : null
+        if (!released || released < dateCutoff) return false
+      }
       return true
     })
-  }, [rawResults, bpmMin, bpmMax, selectedKey, selectedMood, maxDuration, blockVersion])
+  }, [rawResults, bpmMin, bpmMax, selectedKey, selectedMood, maxDuration, releasedWithin, blockVersion])
 
   // Keep refs in sync for audio event handlers
   useEffect(() => { nowPlayingRef.current = nowPlaying }, [nowPlaying])
@@ -976,6 +994,24 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                          placeholder:text-white/40 focus:outline-none focus:border-purple-500/40 font-mono
                          transition-colors duration-300"
             />
+          </div>
+
+          <div>
+            <label className="text-white/80 text-[10px] tracking-wider uppercase block mb-1">Released</label>
+            <select
+              value={releasedWithin}
+              onChange={(e) => setReleasedWithin(e.target.value)}
+              className="bg-white/[0.06] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white
+                         focus:outline-none focus:border-purple-500/40 appearance-none pr-6
+                         [&>option]:bg-neutral-950 [&>option]:text-white transition-colors duration-300"
+            >
+              <option value="">Any time</option>
+              <option value="1d">Today</option>
+              <option value="7d">This week</option>
+              <option value="30d">This month</option>
+              <option value="6m">Last 6 months</option>
+              <option value="1y">This year</option>
+            </select>
           </div>
         </div>
 
