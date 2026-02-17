@@ -132,6 +132,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
         bpmMin,
         bpmMax,
         key: selectedKey,
+        sortBias: releasedWithin ? 'recent' : '',
       })
       setRawResults(tracks)
     } catch (err) {
@@ -139,7 +140,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
     } finally {
       setSearching(false)
     }
-  }, [searchQuery, selectedGenres, selectedMood, bpmMin, bpmMax, selectedKey])
+  }, [searchQuery, selectedGenres, selectedMood, bpmMin, bpmMax, selectedKey, releasedWithin])
 
   const handleRandomize = useCallback(async () => {
     setSearching(true)
@@ -183,7 +184,9 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
       if (maxDur && t.duration > maxDur) return false
       if (dateCutoff) {
         const released = t.release_date ? new Date(t.release_date) : t.created_at ? new Date(t.created_at) : null
-        if (!released || released < dateCutoff) return false
+        // Only exclude tracks that have a date AND it's before the cutoff
+        // Tracks without date data pass through (we can't know when they were released)
+        if (released && released < dateCutoff) return false
       }
       return true
     })

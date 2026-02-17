@@ -286,11 +286,16 @@ async function fetchDJPage(query, sort, offset, extraParams = {}) {
     offset: String(offset),
     app_name: APP_NAME,
   })
-  // Forward API-native params (genre, mood, bpm_min, bpm_max, key)
+  // Forward API-native params (mood, bpm_min, bpm_max, key)
+  // Genre is handled separately since it can be an array
   for (const [k, v] of Object.entries(extraParams)) {
-    if (v) params.set(k, String(v))
+    if (k === 'genres' && Array.isArray(v)) {
+      for (const g of v) params.append('genre', g)
+    } else if (v) {
+      params.set(k, String(v))
+    }
   }
-  const res = await fetch(`${API_HOST}/v1/tracks/search?${params}`)
+  const res = await fetch(`${API_HOST}/v1/full/tracks/search?${params}`)
   if (!res.ok) return []
   const json = await res.json()
   return json.data || []
@@ -318,7 +323,7 @@ const GENRE_DISCOVERY = {
   'Hardstyle': ['hard', 'euphoric', 'raw', 'kick', 'festival', 'energy', 'anthem', 'reverse bass', 'dark', 'intense'],
 }
 
-export async function searchDJTracks({ query = '', genres = [], mood = '', bpmMin = '', bpmMax = '', key = '' } = {}) {
+export async function searchDJTracks({ query = '', genres = [], mood = '', bpmMin = '', bpmMax = '', key = '', sortBias = '' } = {}) {
   // When there's a text query, use only that for API calls (artist/track search)
   // When no text query, use genre-specific discovery queries for variety
   const queries = []
@@ -344,21 +349,19 @@ export async function searchDJTracks({ query = '', genres = [], mood = '', bpmMi
   if (bpmMin) baseParams.bpm_min = bpmMin
   if (bpmMax) baseParams.bpm_max = bpmMax
   if (key) baseParams.key = key
+  // Pass all genres as array — full API supports multiple genre params
+  if (genres.length > 0) baseParams.genres = genres
 
   // Fire multiple pages in parallel across queries, sorts, and offsets
-  // Rotate the API genre param across selected genres for even coverage
   const fetches = []
-  const sorts = ['relevant', 'popular', 'recent']
-  let genreIdx = 0
+  // When a sort bias is active (e.g. 'recent' for date filtering), weight it heavily
+  const sorts = sortBias
+    ? [sortBias, sortBias, 'relevant']
+    : ['relevant', 'popular', 'recent']
   for (const q of queries.slice(0, 4)) {
     for (const sort of sorts) {
-      for (const offset of [0, 100]) {
-        const extraParams = { ...baseParams }
-        if (genres.length > 0) {
-          extraParams.genre = genres[genreIdx % genres.length]
-          genreIdx++
-        }
-        fetches.push(fetchDJPage(q, sort, offset, extraParams))
+      for (const offset of [0, 100, 200]) {
+        fetches.push(fetchDJPage(q, sort, offset, baseParams))
       }
     }
   }
@@ -407,7 +410,7 @@ export async function fetchRandomMix() {
     const q = pool[Math.floor(Math.random() * pool.length)]
     const sort = sorts[Math.floor(Math.random() * sorts.length)]
     const offset = Math.floor(Math.random() * 4) * 25
-    fetches.push(fetchDJPage(q, sort, offset, { genre }))
+    fetches.push(fetchDJPage(q, sort, offset, { genres: [genre] }))
   }
 
   const pages = await Promise.all(fetches)
