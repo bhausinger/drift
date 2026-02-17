@@ -324,44 +324,43 @@ const GENRE_DISCOVERY = {
 }
 
 export async function searchDJTracks({ query = '', genres = [], mood = '', bpmMin = '', bpmMax = '', key = '', sortBias = '' } = {}) {
-  // When there's a text query, use only that for API calls (artist/track search)
-  // When no text query, use genre-specific discovery queries for variety
-  const queries = []
-  if (query.trim()) {
-    queries.push(query.trim())
-  } else if (genres.length > 0) {
-    // Use abstract discovery queries per genre so results aren't all title-matches
-    for (const g of genres) {
-      const pool = GENRE_DISCOVERY[g] || [g]
-      // Pick 3 random discovery queries from the pool
-      const shuffled = [...pool].sort(() => Math.random() - 0.5)
-      queries.push(...shuffled.slice(0, 3))
-    }
-    // Also include one genre name query for balance
-    queries.push(genres[0])
-  } else {
-    queries.push('electronic', 'beats', 'synth', 'dance')
-  }
-
-  // Build API-native params for better server-side filtering
+  // Build API-native params — let the API do the heavy filtering
   const baseParams = {}
   if (mood) baseParams.mood = mood
   if (bpmMin) baseParams.bpm_min = bpmMin
   if (bpmMax) baseParams.bpm_max = bpmMax
   if (key) baseParams.key = key
-  // Pass all genres as array — full API supports multiple genre params
-  if (genres.length > 0) baseParams.genres = genres
 
-  // Fire multiple pages in parallel across queries, sorts, and offsets
+  const sort = sortBias || 'recent'
+  const textQuery = query.trim()
+
+  // Strategy: fetch ALL matching tracks by paginating per genre
+  // Each genre gets its own set of paginated requests so adding genres = more results
   const fetches = []
-  // When a sort bias is active (e.g. 'recent' for date filtering), weight it heavily
-  const sorts = sortBias
-    ? [sortBias, sortBias, 'relevant']
-    : ['relevant', 'popular', 'recent']
-  for (const q of queries.slice(0, 4)) {
-    for (const sort of sorts) {
-      for (const offset of [0, 100, 200]) {
-        fetches.push(fetchDJPage(q, sort, offset, baseParams))
+
+  if (genres.length > 0) {
+    // Separate calls per genre so each genre gets full pagination
+    for (const genre of genres) {
+      const genreParams = { ...baseParams, genres: [genre] }
+      // Paginate: 10 pages × 100 = up to 1000 tracks per genre
+      for (let offset = 0; offset < 1000; offset += 100) {
+        fetches.push(fetchDJPage(textQuery, sort, offset, genreParams))
+      }
+      // Also fetch with 'popular' sort for variety (5 pages)
+      if (sort !== 'popular') {
+        for (let offset = 0; offset < 500; offset += 100) {
+          fetches.push(fetchDJPage(textQuery, 'popular', offset, genreParams))
+        }
+      }
+    }
+  } else {
+    // No genre selected — just search by text query across all genres
+    for (let offset = 0; offset < 1000; offset += 100) {
+      fetches.push(fetchDJPage(textQuery, sort, offset, baseParams))
+    }
+    if (sort !== 'popular') {
+      for (let offset = 0; offset < 500; offset += 100) {
+        fetches.push(fetchDJPage(textQuery, 'popular', offset, baseParams))
       }
     }
   }
@@ -373,26 +372,12 @@ export async function searchDJTracks({ query = '', genres = [], mood = '', bpmMi
   const seen = new Set()
   const blocked = getBlockedIds()
   const blockedArtists = getBlockedArtists()
-  const genreSet = genres.length > 0 ? new Set(genres) : null
-  const searchQuery = query.trim().toLowerCase()
 
   return allTracks.filter((t) => {
     if (seen.has(t.id)) return false
     seen.add(t.id)
     if (blocked.has(t.id)) return false
     if (blockedArtists.has(t.user?.handle)) return false
-    // Genre filtering: if query matched via tags, keep it even if genre doesn't match
-    if (genreSet && !genreSet.has(t.genre)) {
-      // Check if the track's tags contain any of the selected genres
-      const tags = (t.tags || '').toLowerCase()
-      const hasMatchingTag = genres.some((g) => tags.includes(g.toLowerCase()))
-      if (!hasMatchingTag) return false
-    }
-    // Client-side tags matching: if user query appears in tags, include the track
-    if (searchQuery && t.tags) {
-      const tags = t.tags.toLowerCase()
-      if (tags.includes(searchQuery)) return true
-    }
     return true
   })
 }
