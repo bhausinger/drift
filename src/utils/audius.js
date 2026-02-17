@@ -130,18 +130,27 @@ export const VIBES = {
   bass: {
     label: 'bass',
     queries: [
-      'dubstep', 'bass music', 'trap', 'bass heavy', 'riddim',
-      'future bass', 'wave', 'hybrid trap', 'deep dubstep', 'experimental bass',
-      'halftime', 'bass house', 'midtempo', 'space bass', 'wook bass',
+      // Abstract/mood queries that find bass music by vibe, not title
+      'heavy', 'dark', 'filthy', 'wobble', 'deep', 'melodic',
+      'wave', 'experimental', 'chill', 'hard', 'hybrid',
+      // Some genre queries for balance
+      'bass music', 'trap', 'future bass', 'riddim',
     ],
     maxDuration: 6 * 60,
-    genres: ['Dubstep', 'Trap'],
-    apiGenre: 'Dubstep',
+    genres: ['Dubstep', 'Trap', 'Future Bass', 'Electronic'],
+    // Rotate through these genres on the API side for variety
+    apiGenres: ['Trap', 'Future Bass', 'Dubstep', 'Electronic'],
   },
 }
 
 // Cycle through queries per vibe
 const queryIndexes = {}
+
+// Pick the API genre for a vibe — rotates through apiGenres array if present
+function pickApiGenre(config, idx) {
+  if (config.apiGenres) return config.apiGenres[idx % config.apiGenres.length]
+  return config.apiGenre || null
+}
 
 export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
   const config = VIBES[vibe] || VIBES.lofi
@@ -153,12 +162,12 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
 
   // Pick query by cycling, pick sort randomly
   const query = config.queries[idx % config.queries.length]
-  // Favor 'relevant' to get a mix; 'popular' and 'recent' less often
-  const sorts = ['relevant', 'relevant', 'relevant', 'popular', 'recent']
+  // Mix of sort strategies — 'recent' surfaces newer/lesser-known artists
+  const sorts = ['relevant', 'relevant', 'popular', 'recent', 'recent']
   const sort = sorts[Math.floor(Math.random() * sorts.length)]
 
-  // Wider offset range (0–175) for more variety
-  const offset = Math.floor(Math.random() * 8) * 25
+  // Wider offset range (0–250) for deeper discovery
+  const offset = Math.floor(Math.random() * 11) * 25
 
   const params = new URLSearchParams({
     query,
@@ -168,8 +177,9 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
     app_name: APP_NAME,
   })
 
-  // Use API-native genre param for better server-side matching
-  if (config.apiGenre) params.set('genre', config.apiGenre)
+  // Rotate API genre for vibes with multiple genres
+  const apiGenre = pickApiGenre(config, idx)
+  if (apiGenre) params.set('genre', apiGenre)
 
   const res = await fetch(`${API_HOST}/v1/tracks/search?${params}`)
   if (!res.ok) throw new Error(`Audius search failed: ${res.status}`)
@@ -196,16 +206,17 @@ export async function fetchRadioTracks({ vibe = 'lofi', limit = 50 } = {}) {
   const queries = config.queries
   const sorts = ['relevant', 'popular', 'recent']
 
-  // Pick 3 random queries and 2 random sorts, with wide random offsets
+  // Pick 4 random queries across different API genres for variety
   const picks = []
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     const q = queries[Math.floor(Math.random() * queries.length)]
     const s = sorts[Math.floor(Math.random() * sorts.length)]
     const offset = Math.floor(Math.random() * 20) * 25 // 0–475
-    picks.push({ q, s, offset })
+    const genre = pickApiGenre(config, i)
+    picks.push({ q, s, offset, genre })
   }
 
-  const fetches = picks.map(({ q, s, offset }) => {
+  const fetches = picks.map(({ q, s, offset, genre }) => {
     const params = new URLSearchParams({
       query: q,
       sort_method: s,
@@ -213,7 +224,7 @@ export async function fetchRadioTracks({ vibe = 'lofi', limit = 50 } = {}) {
       offset: String(offset),
       app_name: APP_NAME,
     })
-    if (config.apiGenre) params.set('genre', config.apiGenre)
+    if (genre) params.set('genre', genre)
     return fetch(`${API_HOST}/v1/tracks/search?${params}`)
       .then((r) => r.ok ? r.json() : { data: [] })
       .then((j) => j.data || [])
@@ -328,20 +339,25 @@ export async function searchDJTracks({ query = '', genres = [], mood = '', bpmMi
   }
 
   // Build API-native params for better server-side filtering
-  const extraParams = {}
-  // Pass genre param for server-side filtering (one genre per request — handled in fetch loop)
-  if (genres.length >= 1) extraParams.genre = genres[0]
-  if (mood) extraParams.mood = mood
-  if (bpmMin) extraParams.bpm_min = bpmMin
-  if (bpmMax) extraParams.bpm_max = bpmMax
-  if (key) extraParams.key = key
+  const baseParams = {}
+  if (mood) baseParams.mood = mood
+  if (bpmMin) baseParams.bpm_min = bpmMin
+  if (bpmMax) baseParams.bpm_max = bpmMax
+  if (key) baseParams.key = key
 
   // Fire multiple pages in parallel across queries, sorts, and offsets
+  // Rotate the API genre param across selected genres for even coverage
   const fetches = []
   const sorts = ['relevant', 'popular', 'recent']
+  let genreIdx = 0
   for (const q of queries.slice(0, 4)) {
     for (const sort of sorts) {
       for (const offset of [0, 100]) {
+        const extraParams = { ...baseParams }
+        if (genres.length > 0) {
+          extraParams.genre = genres[genreIdx % genres.length]
+          genreIdx++
+        }
         fetches.push(fetchDJPage(q, sort, offset, extraParams))
       }
     }
