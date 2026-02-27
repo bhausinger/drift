@@ -14,6 +14,25 @@ body {
   background: var(--c-deep);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* Prevent iOS zoom on input focus */
+input, select, textarea {
+  font-size: 16px;
+}
+
+/* Prevent double-tap zoom on buttons */
+button, a, [role="button"] {
+  touch-action: manipulation;
+}
+
+/* Safe area insets for notched phones */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .fixed.bottom-3, .fixed.bottom-5 {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
 
 /* Animations */
@@ -45,6 +64,39 @@ body {
 @keyframes float-4 {
   0%, 100% { transform: translate(0, 0) scale(1); }
   50% { transform: translate(-8vw, 12vh) scale(1.1); }
+}
+
+@keyframes aurora {
+  0%, 100% { transform: rotate(-15deg) translateX(0) scaleY(0.8); }
+  25% { transform: rotate(-10deg) translateX(5vw) scaleY(1.1); }
+  50% { transform: rotate(-18deg) translateX(-3vw) scaleY(0.7); }
+  75% { transform: rotate(-12deg) translateX(2vw) scaleY(1); }
+}
+
+@keyframes aurora-reverse {
+  0%, 100% { transform: rotate(10deg) translateX(0) scaleY(0.6); }
+  33% { transform: rotate(15deg) translateX(-4vw) scaleY(0.9); }
+  66% { transform: rotate(8deg) translateX(3vw) scaleY(0.5); }
+}
+
+@keyframes ember-1 {
+  0%, 100% { top: 65%; left: 20%; }
+  25% { top: 30%; left: 35%; }
+  50% { top: 45%; left: 70%; }
+  75% { top: 70%; left: 55%; }
+}
+
+@keyframes ember-2 {
+  0%, 100% { top: 20%; left: 60%; }
+  33% { top: 55%; left: 80%; }
+  66% { top: 75%; left: 30%; }
+}
+
+@keyframes ember-3 {
+  0%, 100% { top: 40%; left: 45%; }
+  25% { top: 25%; left: 65%; }
+  50% { top: 60%; left: 55%; }
+  75% { top: 50%; left: 30%; }
 }
 
 @keyframes fade-in {
@@ -82,6 +134,26 @@ body {
   animation: float-4 24s ease-in-out infinite;
 }
 
+@utility animate-aurora {
+  animation: aurora 30s ease-in-out infinite;
+}
+
+@utility animate-aurora-reverse {
+  animation: aurora-reverse 25s ease-in-out infinite;
+}
+
+@utility animate-ember-1 {
+  animation: ember-1 16s ease-in-out infinite;
+}
+
+@utility animate-ember-2 {
+  animation: ember-2 20s ease-in-out infinite;
+}
+
+@utility animate-ember-3 {
+  animation: ember-3 14s ease-in-out infinite;
+}
+
 @utility animate-fade-in {
   animation: fade-in 0.8s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -94,6 +166,11 @@ body {
   animation: shimmer 3s ease-in-out infinite;
 }
 
+/* Smooth palette crossfade on background orbs */
+.orb-transition {
+  transition: background-color 1.5s ease, opacity 1.5s ease;
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .animate-rotate-slow,
@@ -101,6 +178,11 @@ body {
   .animate-float-2,
   .animate-float-3,
   .animate-float-4,
+  .animate-aurora,
+  .animate-aurora-reverse,
+  .animate-ember-1,
+  .animate-ember-2,
+  .animate-ember-3,
   .animate-fade-in,
   .animate-pulse-glow,
   .animate-shimmer {

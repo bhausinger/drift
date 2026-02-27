@@ -1,18 +1,29 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { useAudius } from '../hooks/useAudius'
+import { VIBES } from '../utils/audius'
+import { useGestures } from '../hooks/useGestures'
 import TrackInfo from './TrackInfo'
 import Controls from './Controls'
+import VolumeControl from './VolumeControl'
 import VibeSelector from './VibeSelector'
 import ProgressBar from './ProgressBar'
 
-export default function Player({ audioRef, playerStateRef }) {
+export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
   const preloadRef = useRef(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [vibe, setVibe] = useState('lofi')
   const wantsToPlay = useRef(false)
   const userInteracted = useRef(false)
 
-  const { currentTrack, streamUrl, nextStreamUrl, nextTrack, prevTrack, blockCurrent, blockCurrentArtist, isLoading, error } = useAudius(vibe)
+  const { currentTrack, nextTrackData, streamUrl, nextStreamUrl, nextTrack, prevTrack, blockCurrent, blockCurrentArtist, isLoading, error } = useAudius(vibe)
+
+  // Hold previous track + next track on screen while loading new vibe
+  const displayTrackRef = useRef(null)
+  const displayNextRef = useRef(null)
+  if (currentTrack) displayTrackRef.current = currentTrack
+  if (nextTrackData) displayNextRef.current = nextTrackData
+  const displayTrack = currentTrack || displayTrackRef.current
+  const displayNext = nextTrackData || displayNextRef.current
 
   // Expose state to parent for handoff to Deep Dive
   useEffect(() => {
@@ -20,6 +31,13 @@ export default function Player({ audioRef, playerStateRef }) {
       playerStateRef.current = { currentTrack, isPlaying }
     }
   }, [currentTrack, isPlaying, playerStateRef])
+
+  // Lift artwork URL to App for color extraction
+  useEffect(() => {
+    if (onArtworkChange) {
+      onArtworkChange(currentTrack?.artwork?.['150x150'] || null)
+    }
+  }, [currentTrack, onArtworkChange])
 
   // Preload next track
   useEffect(() => {
@@ -86,16 +104,31 @@ export default function Player({ audioRef, playerStateRef }) {
     blockCurrent()
   }, [blockCurrent])
 
+  const applyPalette = useCallback((v) => {
+    const config = VIBES[v] || VIBES.lofi
+    if (config.palette) {
+      for (const [prop, val] of Object.entries(config.palette)) {
+        document.documentElement.style.setProperty(prop, val)
+      }
+    }
+  }, [])
+
+  // Apply palette on initial mount
+  useEffect(() => { applyPalette(vibe) }, [])
+
   const handleVibeChange = useCallback((v) => {
     const audio = audioRef.current
+    const wasPlaying = isPlaying || wantsToPlay.current
     if (audio) {
       audio.pause()
       audio.removeAttribute('src')
     }
     setIsPlaying(false)
-    wantsToPlay.current = false
+    // Auto-play the new vibe's first track if user was already listening
+    wantsToPlay.current = wasPlaying || userInteracted.current
+    applyPalette(v)
     setVibe(v)
-  }, [])
+  }, [applyPalette, isPlaying])
 
   // On mount, if audio is already playing (returning from Deep Dive), sync state
   const didInitialSync = useRef(false)
@@ -182,19 +215,34 @@ export default function Player({ audioRef, playerStateRef }) {
 
   const ready = !!streamUrl
 
+  // Swipe gestures: left = skip, up = open DJ (not wired here)
+  const gestures = useGestures({
+    onSwipeLeft: handleSkip,
+  })
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+      if (e.code === 'Space') { e.preventDefault(); handlePlayPause() }
+      if (e.code === 'ArrowRight') handleSkip()
+      if (e.code === 'ArrowLeft') handlePrev()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [handlePlayPause, handleSkip, handlePrev])
+
   return (
-    <div className="flex flex-col items-center gap-6 sm:gap-8 w-full max-w-md px-4">
+    <div className="flex flex-col items-center gap-3 sm:gap-4 w-full max-w-md px-4" {...gestures}>
       <VibeSelector current={vibe} onChange={handleVibeChange} />
 
-      {error && (
-        <p className="text-red-400/60 text-xs">{error}</p>
-      )}
+      {error && <p className="text-red-400/60 text-xs">{error}</p>}
 
-      {isLoading && !currentTrack && (
+      {isLoading && !displayTrack && (
         <div className="w-4 h-4 border border-white/20 border-t-white/60 rounded-full animate-spin" />
       )}
 
-      <TrackInfo track={currentTrack} onBlockArtist={() => {
+      <TrackInfo track={displayTrack} onBlockArtist={() => {
         const audio = audioRef.current
         if (audio) { audio.pause(); audio.removeAttribute('src') }
         setIsPlaying(false)
@@ -211,6 +259,12 @@ export default function Player({ audioRef, playerStateRef }) {
         onPrev={handlePrev}
         disabled={!ready}
       />
+
+      <VolumeControl audioRef={audioRef} />
+
+      <p className="text-white/20 text-[10px] tracking-wider h-4">
+        {displayNext ? `up next: ${displayNext.title} — ${displayNext.user?.name}` : '\u00A0'}
+      </p>
     </div>
   )
 }

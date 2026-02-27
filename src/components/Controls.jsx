@@ -5,13 +5,13 @@ export default function Controls({ isPlaying, onPlayPause, onSkip, onPrev, disab
       <button
         onClick={onPrev}
         disabled={disabled}
-        className="w-10 h-10 flex items-center justify-center
+        className="w-12 h-12 flex items-center justify-center
                    transition-all duration-300
                    hover:scale-110 active:scale-95
                    disabled:opacity-20 disabled:cursor-not-allowed disabled:hover:scale-100"
         aria-label="Previous"
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"
              className="text-white/30 hover:text-white/60 transition-colors duration-300">
           <rect x="2" y="1" width="2.5" height="14" rx="0.75" />
           <polygon points="15,1 6,8 15,15" />
@@ -46,13 +46,13 @@ export default function Controls({ isPlaying, onPlayPause, onSkip, onPrev, disab
       <button
         onClick={onSkip}
         disabled={disabled}
-        className="w-10 h-10 flex items-center justify-center
+        className="w-12 h-12 flex items-center justify-center
                    transition-all duration-300
                    hover:scale-110 active:scale-95
                    disabled:opacity-20 disabled:cursor-not-allowed disabled:hover:scale-100"
         aria-label="Next"
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"
              className="text-white/30 hover:text-white/60 transition-colors duration-300">
           <polygon points="1,1 10,8 1,15" />
           <rect x="11.5" y="1" width="2.5" height="14" rx="0.75" />

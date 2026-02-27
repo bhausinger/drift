@@ -104,42 +104,157 @@ function shuffle(arr) {
   return a
 }
 
+// Engagement ratio: favorites+reposts per play — measures how much listeners care
+// A track with 200 plays and 50 favs (25% ratio) is better than 10k plays and 20 favs (0.2%)
+function engagementRatio(track) {
+  const plays = track.play_count || 0
+  if (plays === 0) return 0
+  return ((track.favorite_count || 0) + (track.repost_count || 0)) / plays
+}
+
+// Quality score combining engagement ratio, raw reach, and recency
+function qualityScore(track) {
+  const engagement = engagementRatio(track)
+  const reach = Math.log10((track.play_count || 0) + 1) // 0–6 range
+  // Recency bonus: tracks < 6 months old get a boost
+  const released = track.release_date ? new Date(track.release_date) : null
+  const ageMonths = released ? (Date.now() - released.getTime()) / (30 * 24 * 60 * 60 * 1000) : 12
+  const recency = ageMonths < 6 ? 0.3 : ageMonths < 12 ? 0.15 : 0
+  // Engagement is the primary signal (weighted most), reach prevents total unknowns,
+  // recency surfaces fresh music
+  return engagement * 4 + reach * 0.3 + recency
+}
+
+// Minimum engagement ratio to filter out low-quality tracks
+// Tracks need at least 1% engagement OR 500+ plays (established tracks get benefit of doubt)
+function passesQualityGate(track) {
+  const plays = track.play_count || 0
+  if (plays < 20) return false // absolute floor
+  if (!track.artwork?.['150x150']) return false // must have artwork
+  if (plays >= 500) return true // established tracks pass
+  return engagementRatio(track) >= 0.01 // smaller tracks need 1%+ engagement
+}
+
+// Weighted shuffle: higher quality bubbles up but randomness preserves discovery
+function weightedShuffle(arr) {
+  return arr
+    .map((t) => ({ t, score: qualityScore(t) + Math.random() * 0.5 }))
+    .sort((a, b) => b.score - a.score)
+    .map(({ t }) => t)
+}
+
 export const VIBES = {
   lofi: {
     label: 'lo-fi',
+    // Genre-locked to Lo-Fi — queries just vary the flavor
     queries: [
-      'lofi', 'lofi beats', 'lofi hip hop', 'lofi chill', 'chillhop',
-      'study beats', 'lofi jazz', 'lofi ambient', 'chill lofi', 'mellow beats',
-      'late night lofi', 'lofi vibes', 'bedroom beats', 'rain lofi', 'coffee shop beats',
+      'lofi', 'lofi beats', 'lofi hip hop', 'chillhop',
+      'study beats', 'lofi jazz', 'mellow beats',
+      'late night lofi', 'bedroom beats', 'coffee shop beats',
+      'lofi chill', 'lofi vibes', 'lofi piano', 'lofi guitar',
+      'lofi rain', 'lofi study', 'lofi sleep', 'lofi tape',
+      'vinyl beats', 'dusty beats', 'lofi soul', 'calm beats',
     ],
     maxDuration: 6 * 60,
     genres: ['Lo-Fi'],
     apiGenre: 'Lo-Fi',
+    palette: {
+      '--c-deep': '#0f0808',
+      '--c-navy': '#1a0e0a',
+      '--c-indigo': '#6a3a2a',
+      '--c-purple': '#70304a',
+      '--c-violet': '#a04860',
+      '--c-teal': '#6a4a0d',
+    },
   },
   dnb: {
     label: 'dnb',
+    // Genre-locked to Drum & Bass
     queries: [
-      'drum and bass', 'liquid dnb', 'dnb', 'jungle', 'liquid drum and bass',
-      'neurofunk', 'atmospheric dnb', 'rollers', 'minimal dnb', 'deep dnb',
-      'liquid bass', 'breakbeat', 'halfstep', 'jump up', 'intelligent dnb',
+      'drum and bass', 'liquid dnb', 'dnb', 'jungle',
+      'neurofunk', 'atmospheric dnb', 'rollers', 'deep dnb',
+      'liquid bass', 'breakbeat', 'halfstep', 'jump up',
+      'dancefloor dnb', 'minimal dnb', 'vocal dnb', 'dark dnb',
+      'liquid funk', 'intelligent dnb', 'sambass', 'ragga jungle',
     ],
-    maxDuration: 6 * 60,
+    maxDuration: 7 * 60,
     genres: ['Drum & Bass'],
     apiGenre: 'Drum & Bass',
+    palette: {
+      '--c-deep': '#080508',
+      '--c-navy': '#1a0a14',
+      '--c-indigo': '#5a1a2a',
+      '--c-purple': '#3a1040',
+      '--c-violet': '#7a2040',
+      '--c-teal': '#0a2848',
+    },
   },
   bass: {
     label: 'bass',
+    // Genre-locked to Dubstep/Trap/Future Bass — no Electronic catch-all
     queries: [
-      // Abstract/mood queries that find bass music by vibe, not title
-      'heavy', 'dark', 'filthy', 'wobble', 'deep', 'melodic',
-      'wave', 'experimental', 'chill', 'hard', 'hybrid',
-      // Some genre queries for balance
-      'bass music', 'trap', 'future bass', 'riddim',
+      'bass', 'bass music', 'dubstep', 'trap', 'future bass',
+      'riddim', 'heavy', 'filthy', 'wobble', 'banger',
+      'festival', 'drop', 'hard', 'hybrid',
+      'wub', 'grime', 'halftime', 'midtempo', 'tearout',
+      'color bass', 'experimental bass', 'space bass', 'wonky',
     ],
     maxDuration: 6 * 60,
-    genres: ['Dubstep', 'Trap', 'Future Bass', 'Electronic'],
-    // Rotate through these genres on the API side for variety
-    apiGenres: ['Trap', 'Future Bass', 'Dubstep', 'Electronic'],
+    genres: ['Dubstep', 'Trap', 'Future Bass'],
+    apiGenres: ['Dubstep', 'Trap', 'Future Bass'],
+    palette: {
+      '--c-deep': '#050510',
+      '--c-navy': '#0a0a28',
+      '--c-indigo': '#0a3a6a',
+      '--c-purple': '#5a1070',
+      '--c-violet': '#0ad0d0',
+      '--c-teal': '#d020a0',
+    },
+  },
+  chill: {
+    label: 'chill',
+    // Downtempo-only genre lock — no Electronic catch-all leaking in
+    // Covers ambient, downtempo, chill electronic territory
+    queries: [
+      'chill', 'downtempo', 'ambient', 'atmospheric', 'ethereal',
+      'dreamy', 'mellow', 'floating', 'sunset', 'peaceful',
+      'meditative', 'relaxing', 'deep', 'organic',
+      'zen', 'nature sounds', 'space ambient', 'drone',
+      'new age', 'healing', 'cinematic', 'slow',
+    ],
+    maxDuration: 10 * 60,
+    genres: ['Downtempo'],
+    apiGenre: 'Downtempo',
+    palette: {
+      '--c-deep': '#040810',
+      '--c-navy': '#081828',
+      '--c-indigo': '#1a4a5a',
+      '--c-purple': '#204060',
+      '--c-violet': '#3a7080',
+      '--c-teal': '#1a5a4a',
+    },
+  },
+  house: {
+    label: 'house',
+    // All three house sub-genres in both API rotation and client filter
+    queries: [
+      'house', 'deep house', 'tech house', 'house music',
+      'soulful house', 'funky house', 'vocal house', 'minimal house',
+      'underground house', 'afro house', 'melodic house', 'disco house',
+      'progressive house', 'organic house', 'jackin house', 'acid house',
+      'tribal house', 'latin house', 'garage', 'uk garage',
+    ],
+    maxDuration: 8 * 60,
+    genres: ['House', 'Deep House', 'Tech House'],
+    apiGenres: ['House', 'Deep House', 'Tech House'],
+    palette: {
+      '--c-deep': '#0a0804',
+      '--c-navy': '#1a1408',
+      '--c-indigo': '#6a4a1a',
+      '--c-purple': '#704820',
+      '--c-violet': '#a06830',
+      '--c-teal': '#5a3a0a',
+    },
   },
 }
 
@@ -152,66 +267,76 @@ function pickApiGenre(config, idx) {
   return config.apiGenre || null
 }
 
+// Always cast a wide net: multiple queries × sorts × genres in parallel
+// This is the core discovery engine — bigger pool = better quality after filtering
 export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
   const config = VIBES[vibe] || VIBES.lofi
 
-  // Cycle through queries in shuffled order for variety
+  // Advance query index to rotate through different queries each call
   if (!(vibe in queryIndexes)) queryIndexes[vibe] = 0
-  const idx = queryIndexes[vibe]
-  queryIndexes[vibe]++
+  const startIdx = queryIndexes[vibe]
+  queryIndexes[vibe] += 6
 
-  // Pick query by cycling, pick sort randomly
-  const query = config.queries[idx % config.queries.length]
-  // Mix of sort strategies — 'recent' surfaces newer/lesser-known artists
-  const sorts = ['relevant', 'relevant', 'popular', 'recent', 'recent']
-  const sort = sorts[Math.floor(Math.random() * sorts.length)]
+  // Pick 6 diverse query combos: different queries × different sorts × different offsets
+  const sorts = ['relevant', 'popular', 'recent']
+  const picks = []
+  for (let i = 0; i < 6; i++) {
+    const q = config.queries[(startIdx + i) % config.queries.length]
+    const s = sorts[i % sorts.length]
+    const offset = Math.floor(Math.random() * 6) * 25 // 0–125 (stay in productive range)
+    const genre = pickApiGenre(config, startIdx + i)
+    picks.push({ q, s, offset, genre })
+  }
 
-  // Wider offset range (0–250) for deeper discovery
-  const offset = Math.floor(Math.random() * 11) * 25
-
-  const params = new URLSearchParams({
-    query,
-    sort_method: sort,
-    limit: String(limit),
-    offset: String(offset),
-    app_name: APP_NAME,
+  const fetches = picks.map(({ q, s, offset, genre }) => {
+    const params = new URLSearchParams({
+      query: q,
+      sort_method: s,
+      limit: String(limit),
+      offset: String(offset),
+      app_name: APP_NAME,
+    })
+    if (genre) params.set('genre', genre)
+    return fetch(`${API_HOST}/v1/tracks/search?${params}`)
+      .then((r) => r.ok ? r.json() : { data: [] })
+      .then((j) => j.data || [])
+      .catch(() => [])
   })
 
-  // Rotate API genre for vibes with multiple genres
-  const apiGenre = pickApiGenre(config, idx)
-  if (apiGenre) params.set('genre', apiGenre)
+  const pages = await Promise.all(fetches)
+  const allTracks = pages.flat()
 
-  const res = await fetch(`${API_HOST}/v1/tracks/search?${params}`)
-  if (!res.ok) throw new Error(`Audius search failed: ${res.status}`)
-
-  const json = await res.json()
+  const seen = new Set()
   const blocked = getBlockedIds()
   const blockedArtists = getBlockedArtists()
   const recentlyPlayed = getRecentlyPlayed()
   const allowedGenres = config.genres ? new Set(config.genres) : null
-  const filtered = (json.data || []).filter(
-    (t) => t.duration <= config.maxDuration
+
+  const filtered = allTracks.filter((t) => {
+    if (seen.has(t.id)) return false
+    seen.add(t.id)
+    return t.duration <= config.maxDuration
       && !blocked.has(t.id)
       && !blockedArtists.has(t.user?.handle)
       && !recentlyPlayed.has(t.id)
       && (!allowedGenres || allowedGenres.has(t.genre))
-  )
-  return shuffle(filtered)
+      && passesQualityGate(t)
+  })
+  return weightedShuffle(filtered)
 }
 
-// Radio mode: fetch from multiple queries/sorts in parallel for a much wider pool
-// Used by fetchTracks when the first call returns too few results after dedup
+// Fallback: even wider net when primary fetch returns too few
 export async function fetchRadioTracks({ vibe = 'lofi', limit = 50 } = {}) {
   const config = VIBES[vibe] || VIBES.lofi
   const queries = config.queries
   const sorts = ['relevant', 'popular', 'recent']
 
-  // Pick 4 random queries across different API genres for variety
+  // 8 diverse combos with wider offsets for deeper pages
   const picks = []
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 8; i++) {
     const q = queries[Math.floor(Math.random() * queries.length)]
     const s = sorts[Math.floor(Math.random() * sorts.length)]
-    const offset = Math.floor(Math.random() * 20) * 25 // 0–475
+    const offset = Math.floor(Math.random() * 10) * 25 // 0–225
     const genre = pickApiGenre(config, i)
     picks.push({ q, s, offset, genre })
   }
@@ -248,8 +373,9 @@ export async function fetchRadioTracks({ vibe = 'lofi', limit = 50 } = {}) {
       && !blockedArtists.has(t.user?.handle)
       && !recentlyPlayed.has(t.id)
       && (!allowedGenres || allowedGenres.has(t.genre))
+      && passesQualityGate(t)
   })
-  return shuffle(filtered)
+  return weightedShuffle(filtered)
 }
 
 export const DJ_GENRES = [
@@ -414,7 +540,7 @@ export async function fetchRandomMix() {
     if (recentlyPlayed.has(t.id)) return false
     return true
   })
-  return shuffle(filtered)
+  return weightedShuffle(filtered)
 }
 
 export function formatDuration(seconds) {

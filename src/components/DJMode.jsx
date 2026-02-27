@@ -832,7 +832,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
               if (!user) { login(); return }
               setShowPlaylist((v) => !v)
             }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] tracking-wider uppercase
+            className={`flex items-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-[10px] tracking-wider uppercase
                        transition-all duration-300 border
               ${showPlaylist
                 ? 'bg-purple-500/20 border-purple-500/30 text-purple-300'
@@ -851,10 +851,10 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
           </button>
           <button
             onClick={onClose}
-            className="text-white/60 hover:text-white transition-colors duration-300 p-1"
+            className="text-white/60 hover:text-white transition-colors duration-300 p-2 -m-1"
             aria-label="Close"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
@@ -919,7 +919,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
               <button
                 key={genre}
                 onClick={() => toggleGenre(genre)}
-                className={`text-[10px] tracking-wider px-3 py-1 rounded-full transition-all duration-300 border
+                className={`text-[10px] tracking-wider px-3 py-1.5 rounded-full transition-all duration-300 border
                   ${selectedGenres.includes(genre)
                     ? 'bg-purple-500/25 border-purple-500/40 text-purple-200'
                     : 'bg-transparent border-white/15 text-white/60 hover:border-white/30 hover:text-white/85'
@@ -932,7 +932,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
         </div>
 
         {/* BPM + Key + Mood + Duration — centered */}
-        <div className="flex flex-wrap items-end justify-center gap-4">
+        <div className="flex flex-wrap items-end justify-center gap-3 sm:gap-4">
           <div className="flex items-end gap-1.5">
             <div>
               <label className="text-white/80 text-[10px] tracking-wider uppercase block mb-1">BPM</label>
@@ -1039,7 +1039,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
 
         {/* Playlist library panel — LEFT side (always shows list) */}
         {showPlaylist && (
-          <div className="absolute left-0 top-0 bottom-0 w-64 sm:w-72 z-20 border-r border-white/[0.06] bg-black/60 backdrop-blur-xl flex flex-col overflow-hidden shadow-xl shadow-black/30">
+          <div className="absolute left-0 top-0 bottom-0 w-full sm:w-72 z-20 border-r border-white/[0.06] bg-black/80 sm:bg-black/60 backdrop-blur-xl flex flex-col overflow-hidden shadow-xl shadow-black/30">
             <div className="px-4 pt-4 pb-2 flex items-center justify-between">
               <h3 className="text-white/90 text-[11px] tracking-wider uppercase">Playlists</h3>
             </div>
@@ -1169,7 +1169,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                     {activePlaylist.isNew && ' · draft'}
                   </p>
                 </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
+                <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
                   {activePlaylist.tracks.length > 0 && (
                     <button
                       onClick={handlePlaylistRadio}
@@ -1258,12 +1258,12 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                     return (
                       <div
                         key={track.id}
-                        className={`flex items-center gap-3 py-2 px-3 -mx-3 rounded-lg transition-all duration-200
+                        className={`flex items-center gap-3 py-2.5 sm:py-2 px-3 -mx-3 rounded-lg transition-all duration-200
                           ${isActive ? 'bg-purple-500/10' : 'hover:bg-white/[0.04]'}`}
                       >
                         <button
                           onClick={() => handlePreview(track)}
-                          className="relative flex-shrink-0 w-9 h-9 rounded-md overflow-hidden bg-white/[0.06] group"
+                          className="relative flex-shrink-0 w-10 h-10 sm:w-9 sm:h-9 rounded-md overflow-hidden bg-white/[0.06] group"
                           aria-label={isActive ? 'Stop preview' : 'Preview'}
                         >
                           {art ? (
@@ -1377,7 +1377,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                     return (
                       <div
                         key={track.id}
-                        className={`flex items-center gap-3 py-2 px-3 -mx-3 rounded-lg transition-all duration-200
+                        className={`flex items-center gap-3 py-2.5 sm:py-2 px-3 -mx-3 rounded-lg transition-all duration-200
                           ${isActive
                             ? 'bg-purple-500/10'
                             : 'hover:bg-white/[0.04]'
@@ -1386,7 +1386,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                         {/* Artwork + play overlay */}
                         <button
                           onClick={() => handlePreview(track)}
-                          className="relative flex-shrink-0 w-9 h-9 rounded-md overflow-hidden bg-white/[0.06] group"
+                          className="relative flex-shrink-0 w-10 h-10 sm:w-9 sm:h-9 rounded-md overflow-hidden bg-white/[0.06] group"
                           aria-label={isActive ? 'Stop preview' : 'Preview'}
                         >
                           {art ? (
@@ -1606,7 +1606,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
           <div className="max-w-4xl mx-auto px-6 sm:px-8">
           {/* Seek bar */}
           <div
-            className="relative h-3 group/seek cursor-pointer flex items-center"
+            className="relative h-8 sm:h-3 group/seek cursor-pointer flex items-center touch-none"
             onClick={(e) => {
               const audio = djAudioRef.current
               if (!audio || !duration) return
@@ -1645,7 +1645,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
           </div>
           <div className="py-2 flex items-center">
             {/* Left — artwork + info */}
-            <div className="flex items-center gap-2.5 min-w-0 w-1/3">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1 sm:w-1/3">
               <div className="w-10 h-10 rounded-md overflow-hidden bg-white/[0.06] flex-shrink-0">
                 {artwork(nowPlaying) ? (
                   <img src={artwork(nowPlaying)} alt="" className="w-full h-full object-cover opacity-80" onError={handleImgError} />
@@ -1660,20 +1660,20 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
             </div>
 
             {/* Center — transport controls */}
-            <div className="flex items-center justify-center gap-3 w-1/3">
+            <div className="flex items-center justify-center gap-3 sm:w-1/3">
               <button
                 onClick={handlePrev}
-                className="text-white/40 hover:text-white/80 transition-colors p-1"
+                className="text-white/40 hover:text-white/80 transition-colors p-2.5 sm:p-1"
                 aria-label="Previous"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                   <rect x="3" y="5" width="2" height="14" />
                   <polygon points="19,5 9,12 19,19" />
                 </svg>
               </button>
               <button
                 onClick={() => handlePreview(nowPlaying)}
-                className="text-white/80 hover:text-white transition-colors p-1.5 bg-white/[0.06] rounded-full hover:bg-white/[0.1]"
+                className="text-white/80 hover:text-white transition-colors p-2.5 sm:p-1.5 bg-white/[0.06] rounded-full hover:bg-white/[0.1]"
                 aria-label={isPlaying ? 'Pause' : 'Play'}
               >
                 {isPlaying ? (
@@ -1689,10 +1689,10 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
               </button>
               <button
                 onClick={handleNext}
-                className="text-white/40 hover:text-white/80 transition-colors p-1"
+                className="text-white/40 hover:text-white/80 transition-colors p-2.5 sm:p-1"
                 aria-label="Next"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                   <polygon points="5,5 15,12 5,19" />
                   <rect x="19" y="5" width="2" height="14" />
                 </svg>
@@ -1700,7 +1700,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
             </div>
 
             {/* Right — time, like, repost, menu */}
-            <div className="flex items-center justify-end gap-1 w-1/3">
+            <div className="hidden sm:flex items-center justify-end gap-1 w-1/3">
               <div className="hidden sm:flex items-center gap-1.5 mr-2 text-[10px] font-mono text-white/50">
                 <span>{formatDuration(currentTime)}</span>
                 <span>/</span>

@@ -1,5 +1,8 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+
+const API_HOST = 'https://api.audius.co'
+const APP_NAME = 'drift'
 
 async function trackAction(action, userId, trackId) {
   const res = await fetch('/api/track-action', {
@@ -10,11 +13,37 @@ async function trackAction(action, userId, trackId) {
   if (!res.ok) throw new Error('Action failed')
 }
 
-export default function TrackActions({ trackId, permalink }) {
+export default function TrackActions({ trackId, permalink, menuButton }) {
   const { user } = useAuth()
   const [liked, setLiked] = useState(false)
   const [reposted, setReposted] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  // Fetch existing like/repost state when track changes
+  useEffect(() => {
+    setLiked(false)
+    setReposted(false)
+    if (!user?.userId || !trackId) return
+
+    let cancelled = false
+    const checkState = async () => {
+      try {
+        const [favRes, repostRes] = await Promise.all([
+          fetch(`${API_HOST}/v1/users/${user.userId}/favorites?app_name=${APP_NAME}`).then(r => r.ok ? r.json() : { data: [] }),
+          fetch(`${API_HOST}/v1/users/${user.userId}/reposts?app_name=${APP_NAME}&limit=50`).then(r => r.ok ? r.json() : { data: [] }),
+        ])
+        if (cancelled) return
+        const favIds = new Set((favRes.data || []).map(t => t.favorite_item_id || t.id))
+        const repostIds = new Set((repostRes.data || []).map(t => t.repost_item_id || t.id))
+        setLiked(favIds.has(trackId))
+        setReposted(repostIds.has(trackId))
+      } catch {
+        // Silently fail — icons just start unhighlighted
+      }
+    }
+    checkState()
+    return () => { cancelled = true }
+  }, [trackId, user?.userId])
 
   const handleLike = useCallback(async () => {
     if (!user) return
@@ -48,16 +77,16 @@ export default function TrackActions({ trackId, permalink }) {
   }, [permalink])
 
   return (
-    <div className="flex items-center gap-4 justify-center mt-2">
+    <div className="flex items-center gap-1 justify-center">
       {user && (
         <>
           <button
             onClick={handleLike}
-            className="transition-all duration-200 active:scale-125"
+            className="p-2.5 transition-all duration-200 active:scale-125"
             aria-label={liked ? 'Unlike' : 'Like'}
           >
             <svg
-              width="14" height="14" viewBox="0 0 24 24"
+              width="18" height="18" viewBox="0 0 24 24"
               fill={liked ? 'currentColor' : 'none'}
               stroke="currentColor" strokeWidth="2"
               className={`transition-colors duration-300 ${liked ? 'text-pink-400/80' : 'text-white/25 hover:text-white/50'}`}
@@ -68,11 +97,11 @@ export default function TrackActions({ trackId, permalink }) {
 
           <button
             onClick={handleRepost}
-            className="transition-all duration-200 active:scale-125"
+            className="p-2.5 transition-all duration-200 active:scale-125"
             aria-label={reposted ? 'Undo repost' : 'Repost'}
           >
             <svg
-              width="14" height="14" viewBox="0 0 24 24"
+              width="18" height="18" viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor" strokeWidth="2"
               className={`transition-colors duration-300 ${reposted ? 'text-emerald-400/80' : 'text-white/25 hover:text-white/50'}`}
@@ -88,12 +117,12 @@ export default function TrackActions({ trackId, permalink }) {
 
       <button
         onClick={handleShare}
-        className="transition-all duration-200 active:scale-125"
+        className="p-2.5 transition-all duration-200 active:scale-125"
         aria-label="Share"
         title="Copy Audius link"
       >
         <svg
-          width="14" height="14" viewBox="0 0 24 24"
+          width="18" height="18" viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor" strokeWidth="2"
           strokeLinecap="round" strokeLinejoin="round"
@@ -110,6 +139,8 @@ export default function TrackActions({ trackId, permalink }) {
           )}
         </svg>
       </button>
+
+      {menuButton}
     </div>
   )
 }

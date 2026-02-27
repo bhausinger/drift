@@ -1,13 +1,19 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { getAudiusProfileUrl, addToDraftPlaylist, blockArtist, getImageFallback } from '../utils/audius'
+import { getAudiusProfileUrl, addToDraftPlaylist, fetchUserPlaylists, blockArtist, getImageFallback } from '../utils/audius'
+import { useAuth } from '../contexts/AuthContext'
 import TrackActions from './TrackActions'
 
 export default function TrackInfo({ track, onBlockArtist }) {
+  const { user, sdk } = useAuth() || {}
   const profileUrl = track ? getAudiusProfileUrl(track.user.handle) : null
   const artwork = track?.artwork?.['480x480'] || track?.artwork?.['1000x1000'] || track?.artwork?.['150x150']
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [added, setAdded] = useState(false)
+  const [showPlaylists, setShowPlaylists] = useState(false)
+  const [playlists, setPlaylists] = useState(null)
+  const [playlistsLoading, setPlaylistsLoading] = useState(false)
+  const [toast, setToast] = useState(null)
   const menuRef = useRef(null)
 
   // Close menu on click outside
@@ -20,23 +26,154 @@ export default function TrackInfo({ track, onBlockArtist }) {
     return () => document.removeEventListener('mousedown', onClick)
   }, [menuOpen])
 
-  // Reset added state when track changes
-  useEffect(() => { setAdded(false); setMenuOpen(false) }, [track?.id])
+  // Reset state when track changes
+  useEffect(() => { setAdded(false); setMenuOpen(false); setShowPlaylists(false) }, [track?.id])
 
-  const handleAdd = useCallback(() => {
+  // Clear toast after delay
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 2000)
+    return () => clearTimeout(t)
+  }, [toast])
+
+  const handleAddDraft = useCallback(() => {
     if (!track) return
     addToDraftPlaylist(track)
     setAdded(true)
+    setToast('Added to draft playlist')
     setTimeout(() => setMenuOpen(false), 600)
   }, [track])
 
+  const handleShowPlaylists = useCallback(async () => {
+    setShowPlaylists(true)
+    if (playlists !== null) return
+    if (!user?.userId) return
+    setPlaylistsLoading(true)
+    try {
+      const lists = await fetchUserPlaylists(user.userId)
+      setPlaylists(lists)
+    } catch {
+      setPlaylists([])
+    } finally {
+      setPlaylistsLoading(false)
+    }
+  }, [user?.userId, playlists])
+
+  const handleAddToAudiusPlaylist = useCallback(async (playlist) => {
+    if (!track || !sdk || !user?.userId) return
+    try {
+      await sdk.playlists.addTrackToPlaylist({
+        playlistId: playlist.playlist_id || playlist.id,
+        userId: user.userId,
+        trackId: track.id,
+      })
+      setToast(`Added to ${playlist.playlist_name || playlist.playlistName}`)
+    } catch {
+      setToast('Failed to add to playlist')
+    }
+    setMenuOpen(false)
+    setShowPlaylists(false)
+  }, [track, sdk, user?.userId])
+
+  // Three-dot menu content (rendered inside TrackActions row)
+  const menuButton = (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setMenuOpen((v) => !v)}
+        className="p-2.5 -m-1.5 text-white/25 hover:text-white/50 transition-colors duration-200"
+        aria-label="Track options"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="5" cy="12" r="1.5" />
+          <circle cx="12" cy="12" r="1.5" />
+          <circle cx="19" cy="12" r="1.5" />
+        </svg>
+      </button>
+      {menuOpen && (
+        <div
+          className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 z-50 bg-black/80 backdrop-blur-md
+                     border border-white/10 rounded-lg shadow-xl shadow-black/50 py-1 min-w-[170px]"
+        >
+          {!showPlaylists ? (
+            <>
+              <button
+                onClick={user ? handleShowPlaylists : handleAddDraft}
+                className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 transition-colors
+                  ${added ? 'text-purple-300/80' : 'text-white/80 hover:bg-white/[0.06] hover:text-white'}`}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                {added ? 'Added to playlist' : 'Add to playlist'}
+              </button>
+              <button
+                onClick={() => {
+                  if (!track?.user?.handle) return
+                  blockArtist(track.user.handle)
+                  setMenuOpen(false)
+                  if (onBlockArtist) onBlockArtist(track)
+                }}
+                className="w-full text-left px-4 py-2.5 text-sm text-red-400/80 hover:bg-white/[0.06] hover:text-red-300 transition-colors flex items-center gap-2"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                </svg>
+                Hide artist
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setShowPlaylists(false)}
+                className="w-full text-left px-4 py-2.5 text-sm text-white/40 hover:bg-white/[0.06] transition-colors flex items-center gap-1"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="15 18 9 12 15 6" />
+                </svg>
+                Back
+              </button>
+              <div className="border-t border-white/5 my-0.5" />
+              <button
+                onClick={handleAddDraft}
+                className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 transition-colors
+                  ${added ? 'text-purple-300/80' : 'text-white/80 hover:bg-white/[0.06] hover:text-white'}`}
+              >
+                Draft playlist
+              </button>
+              {playlistsLoading && (
+                <div className="px-3 py-1.5 flex justify-center">
+                  <div className="w-3 h-3 border border-white/20 border-t-white/60 rounded-full animate-spin" />
+                </div>
+              )}
+              {playlists && playlists.map((pl) => (
+                <button
+                  key={pl.playlist_id || pl.id}
+                  onClick={() => handleAddToAudiusPlaylist(pl)}
+                  className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-white/[0.06] hover:text-white transition-colors truncate"
+                >
+                  {pl.playlist_name || pl.playlistName}
+                </button>
+              ))}
+              {playlists && playlists.length === 0 && (
+                <p className="px-4 py-2.5 text-sm text-white/30">No playlists found</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+
   return (
-    <div className="flex flex-col items-center justify-center text-center space-y-4">
-      {track && (
-        <div key={track.id} className="animate-fade-in flex flex-col items-center space-y-4">
-          <div className="w-48 h-48 sm:w-56 sm:h-56 flex-shrink-0 rounded-xl overflow-hidden shadow-2xl shadow-black/30">
+    <div className="flex flex-col items-center justify-center text-center space-y-2">
+      <div className="flex flex-col items-center space-y-2">
+        <div className="relative flex items-center justify-center">
+          <div className="w-48 h-48 sm:w-56 sm:h-56 flex-shrink-0 rounded-xl overflow-hidden shadow-2xl shadow-black/30 relative">
             {artwork ? (
               <img
+                key={artwork}
                 src={artwork}
                 alt=""
                 className="w-full h-full object-cover opacity-80"
@@ -53,60 +190,14 @@ export default function TrackInfo({ track, onBlockArtist }) {
               <div className="w-full h-full bg-white/5" />
             )}
           </div>
-          <div className="space-y-1.5 max-w-[300px]">
-            <div className="flex items-center justify-center gap-2">
-              <h2 className="text-white/80 text-lg font-light tracking-wide leading-relaxed line-clamp-2">
-                {track.title}
-              </h2>
-              {/* Three-dot menu */}
-              <div className="relative">
-                <button
-                  onClick={() => setMenuOpen((v) => !v)}
-                  className="p-1 text-white/25 hover:text-white/50 transition-colors duration-200"
-                  aria-label="Track options"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="12" cy="5" r="1.5" />
-                    <circle cx="12" cy="12" r="1.5" />
-                    <circle cx="12" cy="19" r="1.5" />
-                  </svg>
-                </button>
-                {menuOpen && (
-                  <div
-                    ref={menuRef}
-                    className="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-50 bg-black/80 backdrop-blur-md
-                               border border-white/10 rounded-lg shadow-xl shadow-black/50 py-1 min-w-[170px]"
-                  >
-                    <button
-                      onClick={handleAdd}
-                      className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors
-                        ${added ? 'text-purple-300/80' : 'text-white/80 hover:bg-white/[0.06] hover:text-white'}`}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <line x1="12" y1="5" x2="12" y2="19" />
-                        <line x1="5" y1="12" x2="19" y2="12" />
-                      </svg>
-                      {added ? 'Added to playlist' : 'Add to playlist'}
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (!track?.user?.handle) return
-                        blockArtist(track.user.handle)
-                        setMenuOpen(false)
-                        if (onBlockArtist) onBlockArtist(track)
-                      }}
-                      className="w-full text-left px-3 py-1.5 text-xs text-red-400/80 hover:bg-white/[0.06] hover:text-red-300 transition-colors flex items-center gap-2"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-                      </svg>
-                      Hide artist
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
+        </div>
+
+        {/* Title + artist */}
+        <div className="space-y-1 w-full max-w-[360px] h-[4.5rem] px-2">
+          {track && (<>
+            <h2 className="text-white/80 text-lg font-light tracking-wide leading-snug line-clamp-2">
+              {track.title}
+            </h2>
             <a
               href={profileUrl}
               target="_blank"
@@ -116,8 +207,18 @@ export default function TrackInfo({ track, onBlockArtist }) {
             >
               {track.user.name}
             </a>
-          </div>
-          <TrackActions trackId={track.id} permalink={track.permalink} />
+          </>)}
+        </div>
+
+        {/* Actions row: like, repost, share, three-dot menu */}
+        {track && <TrackActions trackId={track.id} permalink={track.permalink} menuButton={menuButton} />}
+      </div>
+
+      {toast && (
+        <div className="fixed bottom-12 left-1/2 -translate-x-1/2 z-50 animate-fade-in
+                        bg-black/70 backdrop-blur-md border border-white/10 rounded-lg
+                        px-4 py-2 text-xs text-white/70 tracking-wider">
+          {toast}
         </div>
       )}
     </div>
