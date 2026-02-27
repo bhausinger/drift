@@ -176,7 +176,7 @@ export default function TrackInfo({ track, onBlockArtist }) {
                 key={artwork}
                 src={artwork}
                 alt=""
-                className="w-full h-full object-cover opacity-80"
+                className="w-full h-full object-cover opacity-90"
                 onError={(e) => {
                   const img = e.target
                   if (!img.dataset.fallbackAttempted) {

@@ -54,7 +54,7 @@ export default function App() {
           drift
         </h1>
 
-        <main className="min-h-dvh flex flex-col items-center justify-center px-4 pb-20 sm:pb-4 select-none">
+        <main className="min-h-dvh flex flex-col items-center justify-center px-4 pb-14 sm:pb-4 select-none">
           <Player audioRef={audioRef} playerStateRef={playerStateRef} onArtworkChange={setArtworkUrl} />
         </main>
 
@@ -65,18 +65,18 @@ export default function App() {
           onClick={openDJ}
           className="fixed bottom-3 sm:bottom-5 left-1/2 -translate-x-1/2
                      text-white/30 hover:text-white/50 transition-colors duration-500
-                     text-sm tracking-[0.25em] uppercase z-10 font-light
+                     text-xs sm:text-sm tracking-[0.2em] sm:tracking-[0.25em] uppercase z-10 font-light
                      py-2 px-4"
         >
           deep dive
         </button>
 
-        {/* Audius attribution — bottom right */}
+        {/* Audius attribution — bottom right, hidden on mobile to avoid overlap */}
         <a
           href="https://audius.co"
           target="_blank"
           rel="noopener noreferrer"
-          className="fixed bottom-3 sm:bottom-5 right-4 sm:right-6 flex items-center gap-2
+          className="hidden sm:flex fixed bottom-5 right-6 items-center gap-2
                      text-white/25 hover:text-white/40 transition-colors duration-500"
         >
           <span className="text-[10px] tracking-wider">powered by</span>

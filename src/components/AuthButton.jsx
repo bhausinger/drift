@@ -64,7 +64,11 @@ export default function AuthButton() {
       className="fixed bottom-3 sm:bottom-5 left-4 sm:left-6 flex items-center gap-2
                  text-white/25 hover:text-white/40 transition-colors duration-500"
     >
-      <span className="text-[10px] tracking-wider">log in with Audius</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="sm:hidden">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+      <span className="hidden sm:inline text-[10px] tracking-wider">log in with Audius</span>
     </button>
   )
 }
