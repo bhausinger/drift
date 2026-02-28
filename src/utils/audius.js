@@ -549,6 +549,41 @@ export function formatDuration(seconds) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+// Fetch tracks by a specific artist — search by name, filter to exact handle
+export async function fetchArtistTracks(handle, artistName) {
+  const query = artistName || handle
+  const sorts = ['popular', 'recent', 'relevant']
+  const fetches = sorts.map((sort) => {
+    const params = new URLSearchParams({
+      query,
+      sort_method: sort,
+      limit: '50',
+      app_name: APP_NAME,
+    })
+    return fetch(`${API_HOST}/v1/tracks/search?${params}`)
+      .then((r) => r.ok ? r.json() : { data: [] })
+      .then((j) => j.data || [])
+      .catch(() => [])
+  })
+
+  const pages = await Promise.all(fetches)
+  const allTracks = pages.flat()
+
+  const seen = new Set()
+  const blocked = getBlockedIds()
+  const recentlyPlayed = getRecentlyPlayed()
+
+  return allTracks.filter((t) => {
+    if (seen.has(t.id)) return false
+    seen.add(t.id)
+    if (t.user?.handle !== handle) return false
+    if (blocked.has(t.id)) return false
+    if (recentlyPlayed.has(t.id)) return false
+    if (!passesQualityGate(t)) return false
+    return true
+  }).slice(0, 20)
+}
+
 export function getStreamUrl(trackId) {
   return `${API_HOST}/v1/tracks/${trackId}/stream?app_name=${APP_NAME}`
 }

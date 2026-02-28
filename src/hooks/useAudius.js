@@ -113,6 +113,24 @@ export function useAudius(vibe) {
     }
   }, [tracks, currentIndex, nextTrack])
 
+  // Insert tracks after current position, deduplicating by ID
+  const queueArtistTracks = useCallback((newTracks) => {
+    setTracks((prev) => {
+      const existingIds = new Set(prev.map((t) => t.id))
+      const unique = newTracks.filter((t) => !existingIds.has(t.id))
+      if (unique.length === 0) return prev
+      const insertAt = currentIndex + 1
+      return [...prev.slice(0, insertAt), ...unique, ...prev.slice(insertAt)]
+    })
+  }, [currentIndex])
+
+  // Jump to a specific index in the queue
+  const jumpToIndex = useCallback((idx) => {
+    if (idx >= 0 && idx < tracks.length) {
+      setCurrentIndex(idx)
+    }
+  }, [tracks.length])
+
   const currentTrack = tracks[currentIndex] || null
   const nextIdx = findNextIndex(currentIndex + 1, tracks)
   const nextTrackData = nextIdx >= 0 ? tracks[nextIdx] : null
@@ -144,6 +162,10 @@ export function useAudius(vibe) {
     prevTrack,
     blockCurrent,
     blockCurrentArtist,
+    queueArtistTracks,
+    jumpToIndex,
+    tracks,
+    currentIndex,
     isLoading,
     error,
   }

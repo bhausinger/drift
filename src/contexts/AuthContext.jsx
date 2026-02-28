@@ -42,12 +42,25 @@ export function AuthProvider({ children }) {
   const audiusSdk = sdkRef.current
 
   // Handle OAuth redirect return (mobile full-page flow)
+  // Check both query string and fragment — some mobile browsers strip fragments on redirect
   useEffect(() => {
-    const hash = window.location.hash
-    if (!hash.includes('token=')) return
+    let token = null
 
-    const params = new URLSearchParams(hash.substring(1))
-    const token = params.get('token')
+    // Check query string first (response_mode=query)
+    const searchParams = new URLSearchParams(window.location.search)
+    if (searchParams.has('token')) {
+      token = searchParams.get('token')
+    }
+
+    // Fallback: check fragment (response_mode=fragment)
+    if (!token) {
+      const hash = window.location.hash
+      if (hash.includes('token=')) {
+        const hashParams = new URLSearchParams(hash.substring(1))
+        token = hashParams.get('token')
+      }
+    }
+
     if (!token) return
 
     const payload = decodeJwtPayload(token)
@@ -78,9 +91,10 @@ export function AuthProvider({ children }) {
 
     if (isMobile) {
       // Manual redirect flow — more reliable on mobile than popup/postMessage
+      // Uses response_mode=query because mobile browsers can strip URL fragments on redirect
       const apiKey = import.meta.env.VITE_AUDIUS_API_KEY
       const redirectUri = window.location.origin + window.location.pathname
-      const url = `https://audius.co/oauth/auth?scope=write&api_key=${apiKey}&redirect_uri=${encodeURIComponent(redirectUri)}&app_name=drift&response_mode=fragment`
+      const url = `https://audius.co/oauth/auth?scope=write&api_key=${apiKey}&redirect_uri=${encodeURIComponent(redirectUri)}&response_mode=query`
       window.location.href = url
     } else {
       audiusSdk.oauth.login({ scope: 'write' })

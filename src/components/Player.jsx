@@ -7,6 +7,7 @@ import Controls from './Controls'
 import VolumeControl from './VolumeControl'
 import VibeSelector from './VibeSelector'
 import ProgressBar from './ProgressBar'
+import QueuePanel from './QueuePanel'
 
 export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
   const preloadRef = useRef(null)
@@ -15,7 +16,9 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
   const wantsToPlay = useRef(false)
   const userInteracted = useRef(false)
 
-  const { currentTrack, nextTrackData, streamUrl, nextStreamUrl, nextTrack, prevTrack, blockCurrent, blockCurrentArtist, isLoading, error } = useAudius(vibe)
+  const [showQueue, setShowQueue] = useState(false)
+
+  const { currentTrack, nextTrackData, streamUrl, nextStreamUrl, nextTrack, prevTrack, blockCurrent, blockCurrentArtist, queueArtistTracks, jumpToIndex, tracks, currentIndex, isLoading, error } = useAudius(vibe)
 
   // Hold previous track + next track on screen while loading new vibe
   const displayTrackRef = useRef(null)
@@ -248,7 +251,7 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
         setIsPlaying(false)
         wantsToPlay.current = true
         blockCurrentArtist()
-      }} />
+      }} onQueueArtistTracks={queueArtistTracks} />
 
       <ProgressBar audioRef={audioRef} />
 
@@ -262,9 +265,41 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
 
       <VolumeControl audioRef={audioRef} />
 
-      <p className="text-white/20 text-[10px] tracking-wider h-4">
-        {displayNext ? `up next: ${displayNext.title} — ${displayNext.user?.name}` : '\u00A0'}
-      </p>
+      <div className="flex items-center gap-2 h-4">
+        <p className="text-white/20 text-[10px] tracking-wider">
+          {displayNext ? `up next: ${displayNext.title} — ${displayNext.user?.name}` : '\u00A0'}
+        </p>
+        <button
+          onClick={() => setShowQueue((v) => !v)}
+          className="p-1 -m-1 text-white/20 hover:text-white/50 transition-colors"
+          aria-label="Toggle queue"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="8" y1="6" x2="21" y2="6" />
+            <line x1="8" y1="12" x2="21" y2="12" />
+            <line x1="8" y1="18" x2="21" y2="18" />
+            <line x1="3" y1="6" x2="3.01" y2="6" />
+            <line x1="3" y1="12" x2="3.01" y2="12" />
+            <line x1="3" y1="18" x2="3.01" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      {showQueue && (
+        <QueuePanel
+          tracks={tracks}
+          currentIndex={currentIndex}
+          onJump={(idx) => {
+            const audio = audioRef.current
+            if (audio) { audio.pause(); audio.removeAttribute('src') }
+            setIsPlaying(false)
+            wantsToPlay.current = true
+            userInteracted.current = true
+            jumpToIndex(idx)
+          }}
+          onClose={() => setShowQueue(false)}
+        />
+      )}
     </div>
   )
 }

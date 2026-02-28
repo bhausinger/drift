@@ -158,6 +158,23 @@ button, a, [role="button"] {
   animation: fade-in 0.8s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slide-in-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@utility animate-slide-in {
+  animation: slide-in-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  @media (min-width: 640px) {
+    animation: slide-in-right 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
 @utility animate-pulse-glow {
   animation: pulse-glow 3s ease-in-out infinite;
 }
@@ -185,7 +202,8 @@ button, a, [role="button"] {
   .animate-ember-3,
   .animate-fade-in,
   .animate-pulse-glow,
-  .animate-shimmer {
+  .animate-shimmer,
+  .animate-slide-in {
     animation: none;
   }
 }

@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { getAudiusProfileUrl, addToDraftPlaylist, fetchUserPlaylists, blockArtist, getImageFallback } from '../utils/audius'
+import { getAudiusProfileUrl, addToDraftPlaylist, fetchUserPlaylists, blockArtist, fetchArtistTracks, getImageFallback } from '../utils/audius'
 import { useAuth } from '../contexts/AuthContext'
 import TrackActions from './TrackActions'
 
-export default function TrackInfo({ track, onBlockArtist }) {
+export default function TrackInfo({ track, onBlockArtist, onQueueArtistTracks }) {
   const { user, sdk } = useAuth() || {}
   const profileUrl = track ? getAudiusProfileUrl(track.user.handle) : null
   const artwork = track?.artwork?.['480x480'] || track?.artwork?.['1000x1000'] || track?.artwork?.['150x150']
@@ -35,6 +35,29 @@ export default function TrackInfo({ track, onBlockArtist }) {
     const t = setTimeout(() => setToast(null), 2000)
     return () => clearTimeout(t)
   }, [toast])
+
+  const [loadingArtist, setLoadingArtist] = useState(false)
+
+  const handleMoreFromArtist = useCallback(async () => {
+    if (!track?.user?.handle || !onQueueArtistTracks) return
+    setLoadingArtist(true)
+    try {
+      const artistTracks = await fetchArtistTracks(track.user.handle, track.user.name)
+      // Exclude current track
+      const filtered = artistTracks.filter((t) => t.id !== track.id)
+      if (filtered.length > 0) {
+        onQueueArtistTracks(filtered)
+        setToast(`Queued ${filtered.length} tracks from ${track.user.name}`)
+      } else {
+        setToast('No additional tracks found')
+      }
+    } catch {
+      setToast('Failed to load artist tracks')
+    } finally {
+      setLoadingArtist(false)
+      setMenuOpen(false)
+    }
+  }, [track, onQueueArtistTracks])
 
   const handleAddDraft = useCallback(() => {
     if (!track) return
@@ -106,6 +129,23 @@ export default function TrackInfo({ track, onBlockArtist }) {
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
                 {added ? 'Added to playlist' : 'Add to playlist'}
+              </button>
+              <button
+                onClick={handleMoreFromArtist}
+                disabled={loadingArtist}
+                className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-white/[0.06] hover:text-white transition-colors flex items-center gap-2 disabled:opacity-40"
+              >
+                {loadingArtist ? (
+                  <div className="w-3 h-3 border border-white/20 border-t-white/60 rounded-full animate-spin" />
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="4" />
+                    <line x1="19" y1="8" x2="19" y2="14" />
+                    <line x1="22" y1="11" x2="16" y2="11" />
+                  </svg>
+                )}
+                More from this artist
               </button>
               <button
                 onClick={() => {
