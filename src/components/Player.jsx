@@ -236,7 +236,7 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
   }, [handlePlayPause, handleSkip, handlePrev])
 
   return (
-    <div className="flex flex-col items-center gap-3 sm:gap-4 w-full max-w-md px-4" {...gestures}>
+    <div className="flex flex-col items-center gap-4 sm:gap-5 w-full max-w-md px-4" {...gestures}>
       <VibeSelector current={vibe} onChange={handleVibeChange} />
 
       {error && <p className="text-red-400/60 text-xs">{error}</p>}

@@ -57,14 +57,14 @@ export function useAudius(vibe) {
     loadTracks(vibe)
   }, [vibe, loadTracks])
 
-  // Find next index, skipping any of the last 3 artists. Looks ahead up to 15 tracks.
+  // Find next index, skipping any of the last 5 artists. Looks ahead up to 20 tracks.
   const findNextIndex = useCallback((fromIndex, trackList) => {
     const recent = new Set(recentArtistsRef.current)
     if (recent.size === 0 || fromIndex >= trackList.length) {
       return fromIndex < trackList.length ? fromIndex : -1
     }
 
-    const lookAhead = Math.min(15, trackList.length - fromIndex)
+    const lookAhead = Math.min(20, trackList.length - fromIndex)
     for (let i = 0; i < lookAhead; i++) {
       const idx = fromIndex + i
       if (!recent.has(trackList[idx].user?.handle)) {
@@ -146,7 +146,7 @@ export function useAudius(vibe) {
         // Only add if not already in the window
         if (!recent.includes(handle)) {
           recent.push(handle)
-          if (recent.length > 3) recent.shift()
+          if (recent.length > 5) recent.shift()
         }
       }
       addRecentlyPlayed(currentTrack.id)

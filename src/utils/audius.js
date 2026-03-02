@@ -112,25 +112,48 @@ function engagementRatio(track) {
   return ((track.favorite_count || 0) + (track.repost_count || 0)) / plays
 }
 
-// Quality score combining engagement ratio, raw reach, and recency
+// Quality score combining engagement ratio, raw reach, recency, and artist credibility
 function qualityScore(track) {
+  const plays = track.play_count || 0
+  const favs = track.favorite_count || 0
+  const reposts = track.repost_count || 0
   const engagement = engagementRatio(track)
-  const reach = Math.log10((track.play_count || 0) + 1) // 0–6 range
-  // Recency bonus: tracks < 6 months old get a boost
+
+  // Reach: log-scaled play count (0–6 range)
+  const reach = Math.log10(plays + 1)
+
+  // Recency bonus: fresh tracks get surfaced more
   const released = track.release_date ? new Date(track.release_date) : null
-  const ageMonths = released ? (Date.now() - released.getTime()) / (30 * 24 * 60 * 60 * 1000) : 12
-  const recency = ageMonths < 6 ? 0.3 : ageMonths < 12 ? 0.15 : 0
-  // Engagement is the primary signal (weighted most), reach prevents total unknowns,
-  // recency surfaces fresh music
-  return engagement * 4 + reach * 0.3 + recency
+  const ageMonths = released ? (Date.now() - released.getTime()) / (30 * 24 * 60 * 60 * 1000) : 18
+  const recency = ageMonths < 3 ? 0.4 : ageMonths < 6 ? 0.3 : ageMonths < 12 ? 0.15 : 0
+
+  // Artist credibility: followers indicate a real artist vs spam account
+  const followers = track.user?.follower_count || 0
+  const artistBonus = followers > 1000 ? 0.4 : followers > 200 ? 0.25 : followers > 50 ? 0.1 : 0
+
+  // Favorite-heavy tracks = people really love it (not just repost bots)
+  const loveRatio = plays > 0 ? favs / plays : 0
+  const loveBonus = loveRatio > 0.05 ? 0.3 : loveRatio > 0.02 ? 0.15 : 0
+
+  // Comment count signals genuine engagement (people don't comment on bad tracks)
+  const comments = track.comment_count || 0
+  const commentBonus = comments > 10 ? 0.3 : comments > 3 ? 0.15 : 0
+
+  // Engagement is king, but artist cred + love + freshness help surface gems
+  return engagement * 4 + reach * 0.3 + recency + artistBonus + loveBonus + commentBonus
 }
 
 // Minimum engagement ratio to filter out low-quality tracks
 // Tracks need at least 1% engagement OR 500+ plays (established tracks get benefit of doubt)
 function passesQualityGate(track) {
   const plays = track.play_count || 0
-  if (plays < 20) return false // absolute floor
+  if (plays < 15) return false // absolute floor
   if (!track.artwork?.['150x150']) return false // must have artwork
+  if (track.duration < 30) return false // skip tiny clips/samples
+  // Spam filter: no title or suspiciously short title
+  if (!track.title || track.title.trim().length < 2) return false
+  // Artist must exist and have at least a few followers (filters bot accounts)
+  if (!track.user || (track.user.follower_count || 0) < 3) return false
   if (plays >= 500) return true // established tracks pass
   return engagementRatio(track) >= 0.01 // smaller tracks need 1%+ engagement
 }
@@ -154,6 +177,8 @@ export const VIBES = {
       'lofi chill', 'lofi vibes', 'lofi piano', 'lofi guitar',
       'lofi rain', 'lofi study', 'lofi sleep', 'lofi tape',
       'vinyl beats', 'dusty beats', 'lofi soul', 'calm beats',
+      'nostalgia beats', 'rainy day', 'cozy', 'warm beats',
+      'sunset lofi', 'anime lofi', 'jazzhop', 'boom bap lofi',
     ],
     maxDuration: 6 * 60,
     genres: ['Lo-Fi'],
@@ -176,6 +201,8 @@ export const VIBES = {
       'liquid bass', 'breakbeat', 'halfstep', 'jump up',
       'dancefloor dnb', 'minimal dnb', 'vocal dnb', 'dark dnb',
       'liquid funk', 'intelligent dnb', 'sambass', 'ragga jungle',
+      'clinical dnb', 'amen break', 'steppy', 'autonomic',
+      'soulful dnb', 'drumfunk', 'techstep', 'crossbreed',
     ],
     maxDuration: 7 * 60,
     genres: ['Drum & Bass'],
@@ -198,6 +225,7 @@ export const VIBES = {
       'festival', 'drop', 'hard', 'hybrid',
       'wub', 'grime', 'halftime', 'midtempo', 'tearout',
       'color bass', 'experimental bass', 'space bass', 'wonky',
+      'melodic bass', 'briddim', 'deathstep', 'freeform bass',
     ],
     maxDuration: 6 * 60,
     genres: ['Dubstep', 'Trap', 'Future Bass'],
@@ -221,6 +249,7 @@ export const VIBES = {
       'meditative', 'relaxing', 'deep', 'organic',
       'zen', 'nature sounds', 'space ambient', 'drone',
       'new age', 'healing', 'cinematic', 'slow',
+      'chillout', 'balearic', 'trip hop', 'psybient',
     ],
     maxDuration: 10 * 60,
     genres: ['Downtempo'],
@@ -243,6 +272,7 @@ export const VIBES = {
       'underground house', 'afro house', 'melodic house', 'disco house',
       'progressive house', 'organic house', 'jackin house', 'acid house',
       'tribal house', 'latin house', 'garage', 'uk garage',
+      'italo house', 'piano house', 'speed garage', 'lo-fi house',
     ],
     maxDuration: 8 * 60,
     genres: ['House', 'Deep House', 'Tech House'],
@@ -256,6 +286,86 @@ export const VIBES = {
       '--c-teal': '#5a3a0a',
     },
   },
+}
+
+// ─── Hot & New: Audius's curated weekly playlists ───────────────────────
+// The hotandnew account (jvRRz4a) publishes weekly curated playlists
+// We pull tracks from their most recent playlists as a discovery source
+const HOT_AND_NEW_USER_ID = 'jvRRz4a'
+let hotNewCache = null
+let hotNewCacheTime = 0
+const HOT_NEW_CACHE_TTL = 30 * 60 * 1000 // 30 min cache
+
+async function fetchHotNewTracks() {
+  // Return cached if fresh
+  if (hotNewCache && Date.now() - hotNewCacheTime < HOT_NEW_CACHE_TTL) return hotNewCache
+
+  try {
+    // Fetch ALL their playlists (paginate to get all ~83)
+    let allPlaylists = []
+    let offset = 0
+    while (true) {
+      const res = await fetch(`${API_HOST}/v1/users/${HOT_AND_NEW_USER_ID}/playlists?app_name=${APP_NAME}&limit=100&offset=${offset}`)
+      if (!res.ok) break
+      const json = await res.json()
+      const page = json.data || []
+      allPlaylists.push(...page)
+      if (page.length < 100) break
+      offset += 100
+    }
+    if (allPlaylists.length === 0) return []
+
+    // Pick 3 random playlists from their entire archive
+    const picked = shuffle(allPlaylists).slice(0, 3)
+    const trackFetches = picked.map(pl => {
+      const id = pl.playlist_id || pl.id
+      return fetch(`${API_HOST}/v1/playlists/${id}/tracks?app_name=${APP_NAME}`)
+        .then(r => r.ok ? r.json() : { data: [] })
+        .then(j => j.data || [])
+        .catch(() => [])
+    })
+    const pages = await Promise.all(trackFetches)
+    hotNewCache = pages.flat()
+    hotNewCacheTime = Date.now()
+    return hotNewCache
+  } catch {
+    return []
+  }
+}
+
+// Fetch genre-filtered trending tracks to sprinkle into the mix
+// Rotates through week/month/allTime for variety across fetches
+const trendingTimeframes = ['week', 'month', 'allTime']
+let trendingTimeIdx = 0
+
+async function fetchGenreTrending(genre) {
+  if (!genre) return []
+  const time = trendingTimeframes[trendingTimeIdx++ % trendingTimeframes.length]
+  const params = new URLSearchParams({ app_name: APP_NAME, time })
+  params.set('genre', genre)
+  try {
+    const res = await fetch(`${API_HOST}/v1/tracks/trending?${params}`)
+    if (!res.ok) return []
+    const json = await res.json()
+    return json.data || []
+  } catch { return [] }
+}
+
+// Underground trending — emerging artists with strong engagement
+let undergroundCache = null
+let undergroundCacheTime = 0
+const UNDERGROUND_CACHE_TTL = 15 * 60 * 1000 // 15 min cache
+
+async function fetchUndergroundTrending() {
+  if (undergroundCache && Date.now() - undergroundCacheTime < UNDERGROUND_CACHE_TTL) return undergroundCache
+  try {
+    const res = await fetch(`${API_HOST}/v1/tracks/trending/underground?app_name=${APP_NAME}`)
+    if (!res.ok) return []
+    const json = await res.json()
+    undergroundCache = json.data || []
+    undergroundCacheTime = Date.now()
+    return undergroundCache
+  } catch { return [] }
 }
 
 // Cycle through queries per vibe
@@ -275,20 +385,20 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
   // Advance query index to rotate through different queries each call
   if (!(vibe in queryIndexes)) queryIndexes[vibe] = 0
   const startIdx = queryIndexes[vibe]
-  queryIndexes[vibe] += 6
+  queryIndexes[vibe] += 8
 
-  // Pick 6 diverse query combos: different queries × different sorts × different offsets
+  // Pick 8 diverse query combos: different queries × different sorts × different offsets
   const sorts = ['relevant', 'popular', 'recent']
   const picks = []
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 8; i++) {
     const q = config.queries[(startIdx + i) % config.queries.length]
     const s = sorts[i % sorts.length]
-    const offset = Math.floor(Math.random() * 6) * 25 // 0–125 (stay in productive range)
+    const offset = Math.floor(Math.random() * 8) * 25 // 0–175 (wider range)
     const genre = pickApiGenre(config, startIdx + i)
     picks.push({ q, s, offset, genre })
   }
 
-  const fetches = picks.map(({ q, s, offset, genre }) => {
+  const searchFetches = picks.map(({ q, s, offset, genre }) => {
     const params = new URLSearchParams({
       query: q,
       sort_method: s,
@@ -303,8 +413,22 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
       .catch(() => [])
   })
 
-  const pages = await Promise.all(fetches)
-  const allTracks = pages.flat()
+  // Sprinkle in trending + underground + Hot & New curated picks
+  const trendingGenre = pickApiGenre(config, startIdx)
+  const trendingFetch = fetchGenreTrending(trendingGenre)
+  const undergroundFetch = fetchUndergroundTrending()
+  const hotNewFetch = fetchHotNewTracks()
+
+  const [searchPages, trendingTracks, undergroundTracks, hotNewTracks] = await Promise.all([
+    Promise.all(searchFetches),
+    trendingFetch,
+    undergroundFetch,
+    hotNewFetch,
+  ])
+  // Sample from underground + Hot & New so we get variety each time
+  const undergroundSample = shuffle(undergroundTracks).slice(0, 10)
+  const hotNewSample = shuffle(hotNewTracks).slice(0, 15)
+  const allTracks = [...searchPages.flat(), ...trendingTracks, ...undergroundSample, ...hotNewSample]
 
   const seen = new Set()
   const blocked = getBlockedIds()
@@ -331,9 +455,9 @@ export async function fetchRadioTracks({ vibe = 'lofi', limit = 50 } = {}) {
   const queries = config.queries
   const sorts = ['relevant', 'popular', 'recent']
 
-  // 8 diverse combos with wider offsets for deeper pages
+  // 10 diverse combos with wider offsets for deeper pages
   const picks = []
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 10; i++) {
     const q = queries[Math.floor(Math.random() * queries.length)]
     const s = sorts[Math.floor(Math.random() * sorts.length)]
     const offset = Math.floor(Math.random() * 10) * 25 // 0–225
@@ -341,7 +465,7 @@ export async function fetchRadioTracks({ vibe = 'lofi', limit = 50 } = {}) {
     picks.push({ q, s, offset, genre })
   }
 
-  const fetches = picks.map(({ q, s, offset, genre }) => {
+  const searchFetches = picks.map(({ q, s, offset, genre }) => {
     const params = new URLSearchParams({
       query: q,
       sort_method: s,
@@ -356,8 +480,22 @@ export async function fetchRadioTracks({ vibe = 'lofi', limit = 50 } = {}) {
       .catch(() => [])
   })
 
-  const pages = await Promise.all(fetches)
-  const allTracks = pages.flat()
+  // Pull trending from all 3 timeframes for maximum pool in fallback mode
+  const genre = pickApiGenre(config, 0)
+  const trendingFetches = trendingTimeframes.map(time => {
+    const params = new URLSearchParams({ app_name: APP_NAME, time })
+    if (genre) params.set('genre', genre)
+    return fetch(`${API_HOST}/v1/tracks/trending?${params}`)
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then(j => j.data || [])
+      .catch(() => [])
+  })
+
+  const [searchPages, ...trendingPages] = await Promise.all([
+    Promise.all(searchFetches),
+    ...trendingFetches,
+  ])
+  const allTracks = [...searchPages.flat(), ...trendingPages.flat()]
 
   const seen = new Set()
   const blocked = getBlockedIds()

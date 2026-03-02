@@ -815,7 +815,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0
 
   return (
-    <div className="fixed inset-0 z-40 flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-30 flex flex-col overflow-hidden pb-14">
       {/* Header */}
       <div className="flex items-center justify-between px-6 sm:px-8 pt-5 pb-3 flex-shrink-0">
         <div>
