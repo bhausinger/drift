@@ -288,6 +288,47 @@ export const VIBES = {
   },
 }
 
+// ─── Trending Winners: past weekly chart-toppers ────────────────────────
+// /v1/tracks/trending/winners?week=YYYY-MM-DD returns that week's top tracks
+// We pull from random past weeks to get a pool of proven quality tracks
+let winnersCache = null
+let winnersCacheTime = 0
+const WINNERS_CACHE_TTL = 30 * 60 * 1000 // 30 min cache
+
+function getRandomPastFridays(count) {
+  // Winners are set on Fridays — generate random past Friday dates
+  const now = new Date()
+  const fridays = []
+  // Go back up to 52 weeks
+  const d = new Date(now)
+  d.setDate(d.getDate() - d.getDay() + 5) // This week's Friday
+  if (d > now) d.setDate(d.getDate() - 7) // If Friday hasn't happened yet
+  for (let i = 0; i < 52; i++) {
+    fridays.push(new Date(d))
+    d.setDate(d.getDate() - 7)
+  }
+  return shuffle(fridays).slice(0, count).map(f =>
+    `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(f.getDate()).padStart(2, '0')}`
+  )
+}
+
+async function fetchTrendingWinners() {
+  if (winnersCache && Date.now() - winnersCacheTime < WINNERS_CACHE_TTL) return winnersCache
+
+  // Pick 4 random past weeks and fetch their winners
+  const weeks = getRandomPastFridays(4)
+  const fetches = weeks.map(week =>
+    fetch(`${API_HOST}/v1/tracks/trending/winners?app_name=${APP_NAME}&week=${week}`)
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then(j => j.data || [])
+      .catch(() => [])
+  )
+  const pages = await Promise.all(fetches)
+  winnersCache = pages.flat()
+  winnersCacheTime = Date.now()
+  return winnersCache
+}
+
 // ─── Hot & New: Audius's curated weekly playlists ───────────────────────
 // The hotandnew account (jvRRz4a) publishes weekly curated playlists
 // We pull tracks from their most recent playlists as a discovery source
@@ -413,22 +454,25 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
       .catch(() => [])
   })
 
-  // Sprinkle in trending + underground + Hot & New curated picks
+  // Sprinkle in trending + underground + winners + Hot & New curated picks
   const trendingGenre = pickApiGenre(config, startIdx)
   const trendingFetch = fetchGenreTrending(trendingGenre)
   const undergroundFetch = fetchUndergroundTrending()
+  const winnersFetch = fetchTrendingWinners()
   const hotNewFetch = fetchHotNewTracks()
 
-  const [searchPages, trendingTracks, undergroundTracks, hotNewTracks] = await Promise.all([
+  const [searchPages, trendingTracks, undergroundTracks, winnersTracks, hotNewTracks] = await Promise.all([
     Promise.all(searchFetches),
     trendingFetch,
     undergroundFetch,
+    winnersFetch,
     hotNewFetch,
   ])
-  // Sample from underground + Hot & New so we get variety each time
+  // Sample from each source so we get variety each time
   const undergroundSample = shuffle(undergroundTracks).slice(0, 10)
+  const winnersSample = shuffle(winnersTracks).slice(0, 10)
   const hotNewSample = shuffle(hotNewTracks).slice(0, 15)
-  const allTracks = [...searchPages.flat(), ...trendingTracks, ...undergroundSample, ...hotNewSample]
+  const allTracks = [...searchPages.flat(), ...trendingTracks, ...undergroundSample, ...winnersSample, ...hotNewSample]
 
   const seen = new Set()
   const blocked = getBlockedIds()
