@@ -280,6 +280,31 @@ export const VIBES = {
       '--c-teal': '#1a5a4a',
     },
   },
+  '140': {
+    label: '140',
+    teamOnly: true,
+    queries: [
+      'bass', 'bass music', 'dubstep', 'trap', 'future bass',
+      'riddim', 'heavy', 'filthy', 'wobble', 'banger',
+      'grime', 'halftime', 'midtempo', 'tearout',
+      'color bass', 'experimental bass', 'space bass', 'wonky',
+      'melodic bass', 'briddim', 'deathstep', 'freeform bass',
+      'uk bass', 'ukg', 'garage', 'bassline',
+    ],
+    maxDuration: 6 * 60,
+    bpmMin: 140,
+    bpmMax: 140,
+    genres: ['Dubstep', 'Trap', 'Future Bass', 'Electronic'],
+    apiGenres: ['Dubstep', 'Trap', 'Future Bass', 'Electronic'],
+    palette: {
+      '--c-deep': '#080310',
+      '--c-navy': '#10082a',
+      '--c-indigo': '#1a1a6a',
+      '--c-purple': '#4a0870',
+      '--c-violet': '#8a10d0',
+      '--c-teal': '#d010a0',
+    },
+  },
   house: {
     label: 'house',
     // All three house sub-genres in both API rotation and client filter
@@ -350,35 +375,45 @@ async function fetchTrendingWinners() {
   return winnersCache
 }
 
-// ─── Hot & New: Audius's curated weekly playlists ───────────────────────
-// The hotandnew account (jvRRz4a) publishes weekly curated playlists
-// We pull tracks from their most recent playlists as a discovery source
-const HOT_AND_NEW_USER_ID = 'jvRRz4a'
-let hotNewCache = null
-let hotNewCacheTime = 0
-const HOT_NEW_CACHE_TTL = 30 * 60 * 1000 // 30 min cache
+// ─── Curator accounts: playlist archives for discovery ──────────────────
+// These accounts curate massive playlist libraries across genres
+// We pull random playlists from each to fuel the discovery pipeline
+const CURATOR_ACCOUNTS = [
+  { id: 'jvRRz4a', name: 'Hot & New Archives' },
+  { id: 'Mwvkx', name: 'Fly Moon Music' },
+  { id: 'P8N85', name: 'Shrimply Pibbles' },
+  { id: 'byOqP', name: 'Bragi Collective' },
+]
+let curatorCache = null
+let curatorCacheTime = 0
+const CURATOR_CACHE_TTL = 30 * 60 * 1000 // 30 min cache
 
-async function fetchHotNewTracks() {
-  // Return cached if fresh
-  if (hotNewCache && Date.now() - hotNewCacheTime < HOT_NEW_CACHE_TTL) return hotNewCache
+async function fetchCuratorTracks() {
+  if (curatorCache && Date.now() - curatorCacheTime < CURATOR_CACHE_TTL) return curatorCache
 
   try {
-    // Fetch ALL their playlists (paginate to get all ~83)
-    let allPlaylists = []
-    let offset = 0
-    while (true) {
-      const res = await fetch(`${API_HOST}/v1/users/${HOT_AND_NEW_USER_ID}/playlists?app_name=${APP_NAME}&limit=100&offset=${offset}`)
-      if (!res.ok) break
-      const json = await res.json()
-      const page = json.data || []
-      allPlaylists.push(...page)
-      if (page.length < 100) break
-      offset += 100
-    }
+    // Fetch playlists from all curator accounts in parallel
+    const playlistFetches = CURATOR_ACCOUNTS.map(async (account) => {
+      let allPlaylists = []
+      let offset = 0
+      while (true) {
+        const res = await fetch(`${API_HOST}/v1/users/${account.id}/playlists?app_name=${APP_NAME}&limit=100&offset=${offset}`)
+        if (!res.ok) break
+        const json = await res.json()
+        const page = json.data || []
+        allPlaylists.push(...page)
+        if (page.length < 100) break
+        offset += 100
+      }
+      return allPlaylists
+    })
+
+    const allResults = await Promise.all(playlistFetches)
+    const allPlaylists = allResults.flat()
     if (allPlaylists.length === 0) return []
 
-    // Pick 3 random playlists from their entire archive
-    const picked = shuffle(allPlaylists).slice(0, 3)
+    // Pick 4 random playlists from the combined pool
+    const picked = shuffle(allPlaylists).slice(0, 4)
     const trackFetches = picked.map(pl => {
       const id = pl.playlist_id || pl.id
       return fetch(`${API_HOST}/v1/playlists/${id}/tracks?app_name=${APP_NAME}`)
@@ -387,13 +422,16 @@ async function fetchHotNewTracks() {
         .catch(() => [])
     })
     const pages = await Promise.all(trackFetches)
-    hotNewCache = pages.flat()
-    hotNewCacheTime = Date.now()
-    return hotNewCache
+    curatorCache = pages.flat()
+    curatorCacheTime = Date.now()
+    return curatorCache
   } catch {
     return []
   }
 }
+
+// Backwards compat alias
+const fetchHotNewTracks = fetchCuratorTracks
 
 // Fetch genre-filtered trending tracks to sprinkle into the mix
 // Rotates through week/month/allTime for variety across fetches
@@ -509,6 +547,8 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
       && !blockedArtists.has(t.user?.handle)
       && !recentlyPlayed.has(t.id)
       && (!allowedGenres || allowedGenres.has(t.genre))
+      && (!config.bpmMin || (t.bpm && t.bpm >= config.bpmMin))
+      && (!config.bpmMax || (t.bpm && t.bpm <= config.bpmMax))
       && passesQualityGate(t)
   })
   return weightedShuffle(filtered)
@@ -576,6 +616,8 @@ export async function fetchRadioTracks({ vibe = 'lofi', limit = 50 } = {}) {
       && !blockedArtists.has(t.user?.handle)
       && !recentlyPlayed.has(t.id)
       && (!allowedGenres || allowedGenres.has(t.genre))
+      && (!config.bpmMin || (t.bpm && t.bpm >= config.bpmMin))
+      && (!config.bpmMax || (t.bpm && t.bpm <= config.bpmMax))
       && passesQualityGate(t)
   })
   return weightedShuffle(filtered)

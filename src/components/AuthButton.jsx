@@ -40,8 +40,8 @@ export default function AuthButton() {
     return (
       <button
         onClick={logout}
-        className="fixed bottom-3 sm:bottom-5 left-4 sm:left-6 flex items-center gap-3
-                   text-white/30 hover:text-white/50 transition-colors duration-500"
+        className="fixed bottom-[4.5rem] sm:bottom-5 left-4 sm:left-6 flex items-center gap-3
+                   text-white/30 hover:text-white/50 transition-colors duration-500 z-10"
       >
         {avatarUrl ? (
           <img
@@ -61,14 +61,10 @@ export default function AuthButton() {
   return (
     <button
       onClick={login}
-      className="fixed bottom-3 sm:bottom-5 left-4 sm:left-6 flex items-center gap-2
-                 text-white/25 hover:text-white/40 transition-colors duration-500"
+      className="fixed bottom-[4.5rem] sm:bottom-5 left-4 sm:left-6 flex items-center gap-2
+                 text-white/25 hover:text-white/40 transition-colors duration-500 z-10"
     >
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="sm:hidden">
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
-      </svg>
-      <span className="hidden sm:inline text-[10px] tracking-wider">log in with Audius</span>
+      <span className="text-[10px] tracking-wider">log in with Audius</span>
     </button>
   )
 }

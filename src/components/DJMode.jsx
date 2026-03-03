@@ -6,6 +6,9 @@ import {
   getDraftPlaylist, saveDraftPlaylist, fetchUserPlaylists, fetchPlaylistTracks,
   getBlockedArtists, blockArtist, resolveTrackUrl,
 } from '../utils/audius'
+import { isTeamMember } from '../utils/team'
+import { addHandle, getHandleList } from '../utils/handleList'
+import HandleListPanel from './HandleListPanel'
 
 export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   const { user, login } = useAuth()
@@ -49,6 +52,11 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   // Blocked artist filter counter (bust memo on block)
   const [blockVersion, setBlockVersion] = useState(0)
   const [toast, setToast] = useState(null)
+
+  // Handle list (team scouting)
+  const [showHandleList, setShowHandleList] = useState(false)
+  const [handleList, setHandleList] = useState(() => getHandleList())
+  const isTeam = isTeamMember(user)
 
   // Playlist panel — left side library + detail view
   const [playlist, setPlaylist] = useState(() => getDraftPlaylist())
@@ -827,6 +835,45 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {isTeam && (
+            <button
+              onClick={() => setShowHandleList((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-[10px] tracking-wider uppercase
+                         transition-all duration-300 border
+                ${showHandleList
+                  ? 'bg-purple-500/20 border-purple-500/30 text-purple-300'
+                  : 'bg-white/[0.06] border-white/15 text-white/80 hover:border-white/30 hover:text-white'
+                }`}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              {handleList.length > 0 ? handleList.length : 'handles'}
+            </button>
+          )}
+          {isTeam && (
+            <button
+              onClick={() => {
+                setSelectedGenres(['Dubstep', 'Trap', 'Future Bass', 'Electronic'])
+                setBpmMin('140')
+                setBpmMax('140')
+                setSearchQuery('bass')
+                setSelectedMood('')
+                setSelectedKey('')
+                setReleasedWithin('')
+                setActivePlaylist(null)
+                // Trigger search after state updates
+                setTimeout(() => {
+                  document.querySelector('[data-action="dj-search"]')?.click()
+                }, 50)
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-[10px] tracking-wider uppercase
+                         transition-all duration-300 border bg-white/[0.06] border-white/15 text-white/80 hover:border-white/30 hover:text-white"
+            >
+              140
+            </button>
+          )}
           <button
             onClick={() => {
               if (!user) { login(); return }
@@ -900,6 +947,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                 </svg>
               </button>
               <button
+                data-action="dj-search"
                 onClick={handleSearch}
                 disabled={searching}
                 className="px-4 py-1.5
@@ -1136,6 +1184,15 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
           </div>
         )}
 
+        {/* Handle list panel — RIGHT side (team only) */}
+        {isTeam && showHandleList && (
+          <HandleListPanel
+            handles={handleList}
+            onUpdate={setHandleList}
+            onClose={() => setShowHandleList(false)}
+          />
+        )}
+
         {/* Results / Playlist tracks */}
         <div className="flex-1 overflow-y-auto min-h-0">
           {activePlaylist ? (
@@ -1294,6 +1351,24 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                           {track.bpm ? <span className="w-14 text-right">{Math.round(track.bpm)} bpm</span> : <span className="w-14" />}
                           <span className="w-10 text-right">{formatDuration(track.duration)}</span>
                         </div>
+                        {isTeam && track.user?.handle && (
+                          <button
+                            onClick={() => {
+                              const updated = addHandle(track.user.handle)
+                              setHandleList(updated)
+                              setToast(`Added @${track.user.handle}`)
+                              setTimeout(() => setToast(null), 1500)
+                            }}
+                            className={`flex-shrink-0 p-1 transition-colors duration-200 ${handleList.includes(track.user.handle.toLowerCase()) ? 'text-purple-400/50' : 'text-white/20 hover:text-white/40'}`}
+                            aria-label="Add handle to list"
+                            title={`Add @${track.user.handle}`}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          </button>
+                        )}
                         <div className="relative flex-shrink-0">
                           <button
                             onClick={() => setMenuTrackId(menuTrackId === track.id ? null : track.id)}
@@ -1422,6 +1497,26 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                           {track.musical_key ? <span className="w-20 text-right">{track.musical_key}</span> : <span className="w-20" />}
                           <span className="w-10 text-right">{formatDuration(track.duration)}</span>
                         </div>
+
+                        {/* Add handle to list (team only) */}
+                        {isTeam && track.user?.handle && (
+                          <button
+                            onClick={() => {
+                              const updated = addHandle(track.user.handle)
+                              setHandleList(updated)
+                              setToast(`Added @${track.user.handle}`)
+                              setTimeout(() => setToast(null), 1500)
+                            }}
+                            className={`flex-shrink-0 p-1 transition-colors duration-200 ${handleList.includes(track.user.handle.toLowerCase()) ? 'text-purple-400/50' : 'text-white/20 hover:text-white/40'}`}
+                            aria-label="Add handle to list"
+                            title={`Add @${track.user.handle}`}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          </button>
+                        )}
 
                         {/* Start radio from track */}
                         <button

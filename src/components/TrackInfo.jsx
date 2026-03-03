@@ -1,6 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { getAudiusProfileUrl, addToDraftPlaylist, fetchUserPlaylists, blockArtist, fetchArtistTracks, getImageFallback } from '../utils/audius'
 import { useAuth } from '../contexts/AuthContext'
+import { isTeamMember } from '../utils/team'
+import { addHandle, getHandleList } from '../utils/handleList'
+import HandleListPanel from './HandleListPanel'
 import TrackActions from './TrackActions'
 
 export default function TrackInfo({ track, onBlockArtist, onQueueArtistTracks }) {
@@ -14,6 +17,8 @@ export default function TrackInfo({ track, onBlockArtist, onQueueArtistTracks })
   const [playlists, setPlaylists] = useState(null)
   const [playlistsLoading, setPlaylistsLoading] = useState(false)
   const [toast, setToast] = useState(null)
+  const [showHandleList, setShowHandleList] = useState(false)
+  const [handleList, setHandleList] = useState(() => getHandleList())
   const menuRef = useRef(null)
 
   // Close menu on click outside
@@ -238,15 +243,34 @@ export default function TrackInfo({ track, onBlockArtist, onQueueArtistTracks })
             <h2 className="text-white/80 text-lg font-light tracking-wide leading-snug line-clamp-2">
               {track.title}
             </h2>
-            <a
-              href={profileUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block text-white/30 text-xs tracking-wider
-                         hover:text-white/50 transition-colors duration-500"
-            >
-              {track.user.name}
-            </a>
+            <span className="inline-flex items-center gap-1.5">
+              <a
+                href={profileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-white/30 text-xs tracking-wider
+                           hover:text-white/50 transition-colors duration-500"
+              >
+                {track.user.name}
+              </a>
+              {isTeamMember(user) && track.user?.handle && (
+                <button
+                  onClick={() => {
+                    const updated = addHandle(track.user.handle)
+                    setHandleList(updated)
+                    setToast(`Added @${track.user.handle}`)
+                  }}
+                  className={`transition-colors duration-200 ${handleList.includes(track.user.handle.toLowerCase()) ? 'text-purple-400/50' : 'text-white/20 hover:text-white/40'}`}
+                  aria-label="Add artist handle to list"
+                  title={`Add @${track.user.handle} to list`}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                </button>
+              )}
+            </span>
           </>)}
         </div>
 
@@ -260,6 +284,36 @@ export default function TrackInfo({ track, onBlockArtist, onQueueArtistTracks })
                         px-4 py-2 text-xs text-white/70 tracking-wider">
           {toast}
         </div>
+      )}
+
+      {/* Handle list toggle + panel (team only) */}
+      {isTeamMember(user) && (
+        <>
+          <button
+            onClick={() => setShowHandleList((v) => !v)}
+            className={`fixed top-6 right-6 z-40 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] tracking-wider uppercase
+                       transition-all duration-300 border
+              ${showHandleList
+                ? 'bg-purple-500/20 border-purple-500/30 text-purple-300'
+                : 'bg-black/40 border-white/10 text-white/50 hover:border-white/20 hover:text-white/70'
+              }`}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+            {handleList.length > 0 ? handleList.length : 'handles'}
+          </button>
+          {showHandleList && (
+            <div className="fixed top-0 right-0 bottom-0 z-30 w-64">
+              <HandleListPanel
+                handles={handleList}
+                onUpdate={setHandleList}
+                onClose={() => setShowHandleList(false)}
+              />
+            </div>
+          )}
+        </>
       )}
     </div>
   )

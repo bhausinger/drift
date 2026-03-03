@@ -1,9 +1,16 @@
 import { VIBES } from '../utils/audius'
+import { useAuth } from '../contexts/AuthContext'
+import { isTeamMember } from '../utils/team'
 
 export default function VibeSelector({ current, onChange }) {
+  const { user } = useAuth() || {}
+  const isTeam = isTeamMember(user)
+
   return (
     <div className="flex items-center justify-center w-full px-1">
-      {Object.entries(VIBES).map(([key, { label }]) => (
+      {Object.entries(VIBES)
+        .filter(([, config]) => !config.teamOnly || isTeam)
+        .map(([key, { label }]) => (
         <button
           key={key}
           onClick={() => onChange(key)}
