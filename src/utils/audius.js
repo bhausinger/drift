@@ -143,6 +143,21 @@ function qualityScore(track) {
   return engagement * 4 + reach * 0.3 + recency + artistBonus + loveBonus + commentBonus
 }
 
+// Check if a track or artist name suggests AI-generated content
+function isAIContent(track) {
+  const title = (track.title || '').toLowerCase()
+  const artistName = (track.user?.name || '').toLowerCase()
+  const handle = (track.user?.handle || '').toLowerCase()
+  const tags = (track.tags || '').toLowerCase()
+  const aiPatterns = [
+    /\bai\b/, /\ba\.i\./, /\bartificial intelligence\b/,
+    /\bai.generated\b/, /\bai.music\b/, /\bai.made\b/,
+    /\bsuno\b/, /\budio\b/, /\bai.cover\b/, /\bai.remix\b/,
+  ]
+  const fields = [title, artistName, handle, tags]
+  return fields.some(f => aiPatterns.some(p => p.test(f)))
+}
+
 // Minimum engagement ratio to filter out low-quality tracks
 // Tracks need at least 1% engagement OR 500+ plays (established tracks get benefit of doubt)
 function passesQualityGate(track) {
@@ -154,6 +169,8 @@ function passesQualityGate(track) {
   if (!track.title || track.title.trim().length < 2) return false
   // Artist must exist and have at least a few followers (filters bot accounts)
   if (!track.user || (track.user.follower_count || 0) < 3) return false
+  // No AI-generated content
+  if (isAIContent(track)) return false
   if (plays >= 500) return true // established tracks pass
   return engagementRatio(track) >= 0.01 // smaller tracks need 1%+ engagement
 }
@@ -315,14 +332,18 @@ function getRandomPastFridays(count) {
 async function fetchTrendingWinners() {
   if (winnersCache && Date.now() - winnersCacheTime < WINNERS_CACHE_TTL) return winnersCache
 
-  // Pick 4 random past weeks and fetch their winners
+  // Pick 4 random past weeks and fetch both regular + underground winners
   const weeks = getRandomPastFridays(4)
-  const fetches = weeks.map(week =>
+  const fetches = weeks.flatMap(week => [
     fetch(`${API_HOST}/v1/tracks/trending/winners?app_name=${APP_NAME}&week=${week}`)
       .then(r => r.ok ? r.json() : { data: [] })
       .then(j => j.data || [])
-      .catch(() => [])
-  )
+      .catch(() => []),
+    fetch(`${API_HOST}/v1/tracks/trending/underground/winners?app_name=${APP_NAME}&week=${week}`)
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then(j => j.data || [])
+      .catch(() => []),
+  ])
   const pages = await Promise.all(fetches)
   winnersCache = pages.flat()
   winnersCacheTime = Date.now()

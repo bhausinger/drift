@@ -1,7 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import Background from './components/Background'
 import Player from './components/Player'
-import AuthButton from './components/AuthButton'
 import DJMode from './components/DJMode'
 import BottomTabs from './components/BottomTabs'
 import { AuthProvider } from './contexts/AuthContext'
@@ -31,7 +30,7 @@ export default function App() {
 
       {/* Vibe — the original Drift player */}
       <div className={activeTab === 'vibe' ? '' : 'hidden'}>
-        <h1 className="fixed top-3 sm:top-8 left-1/2 -translate-x-1/2
+        <h1 className="hidden sm:block fixed top-8 left-1/2 -translate-x-1/2
                        text-white/30 text-sm tracking-[0.3em] uppercase select-none font-light z-10">
           drift
         </h1>
@@ -39,8 +38,6 @@ export default function App() {
         <main className="min-h-dvh flex flex-col items-center justify-center px-4 pb-20 sm:pb-4 select-none">
           <Player audioRef={audioRef} playerStateRef={playerStateRef} onArtworkChange={setArtworkUrl} />
         </main>
-
-        <AuthButton />
       </div>
 
       {/* Deep Dive */}

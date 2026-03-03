@@ -9,6 +9,10 @@
   --c-teal: #0d5e6a;
 }
 
+html, body {
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   background: var(--c-deep);
