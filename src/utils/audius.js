@@ -294,6 +294,7 @@ export const VIBES = {
     maxDuration: 6 * 60,
     bpmMin: 140,
     bpmMax: 140,
+    excludePlaylistId: 'l5Q60YO', // @Audius "140" playlist — exclude featured artists
     genres: ['Dubstep', 'Trap', 'Future Bass', 'Electronic'],
     apiGenres: ['Dubstep', 'Trap', 'Future Bass', 'Electronic'],
     palette: {
@@ -468,6 +469,27 @@ async function fetchUndergroundTrending() {
   } catch { return [] }
 }
 
+// ─── Playlist artist exclusion (for 140 vibe) ──────────────────────────
+// Fetches artist handles from a playlist to exclude from discovery results
+const excludeCache = {}
+const EXCLUDE_CACHE_TTL = 30 * 60 * 1000
+
+async function fetchExcludedArtists(playlistId) {
+  if (!playlistId) return new Set()
+  const cached = excludeCache[playlistId]
+  if (cached && Date.now() - cached.time < EXCLUDE_CACHE_TTL) return cached.handles
+  try {
+    const res = await fetch(`${API_HOST}/v1/playlists/${playlistId}/tracks?app_name=${APP_NAME}`)
+    if (!res.ok) return new Set()
+    const json = await res.json()
+    const handles = new Set((json.data || []).map(t => t.user?.handle?.toLowerCase()).filter(Boolean))
+    excludeCache[playlistId] = { handles, time: Date.now() }
+    return handles
+  } catch {
+    return new Set()
+  }
+}
+
 // Cycle through queries per vibe
 const queryIndexes = {}
 
@@ -513,19 +535,21 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
       .catch(() => [])
   })
 
-  // Sprinkle in trending + underground + winners + Hot & New curated picks
+  // Sprinkle in trending + underground + winners + curated picks
   const trendingGenre = pickApiGenre(config, startIdx)
   const trendingFetch = fetchGenreTrending(trendingGenre)
   const undergroundFetch = fetchUndergroundTrending()
   const winnersFetch = fetchTrendingWinners()
   const hotNewFetch = fetchHotNewTracks()
+  const excludeFetch = fetchExcludedArtists(config.excludePlaylistId)
 
-  const [searchPages, trendingTracks, undergroundTracks, winnersTracks, hotNewTracks] = await Promise.all([
+  const [searchPages, trendingTracks, undergroundTracks, winnersTracks, hotNewTracks, excludedArtists] = await Promise.all([
     Promise.all(searchFetches),
     trendingFetch,
     undergroundFetch,
     winnersFetch,
     hotNewFetch,
+    excludeFetch,
   ])
   // Sample from each source so we get variety each time
   const undergroundSample = shuffle(undergroundTracks).slice(0, 10)
@@ -549,6 +573,7 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
       && (!allowedGenres || allowedGenres.has(t.genre))
       && (!config.bpmMin || (t.bpm && t.bpm >= config.bpmMin))
       && (!config.bpmMax || (t.bpm && t.bpm <= config.bpmMax))
+      && !excludedArtists.has(t.user?.handle?.toLowerCase())
       && passesQualityGate(t)
   })
   return weightedShuffle(filtered)
@@ -596,8 +621,11 @@ export async function fetchRadioTracks({ vibe = 'lofi', limit = 50 } = {}) {
       .catch(() => [])
   })
 
-  const [searchPages, ...trendingPages] = await Promise.all([
+  const excludeFetch = fetchExcludedArtists(config.excludePlaylistId)
+
+  const [searchPages, excludedArtists, ...trendingPages] = await Promise.all([
     Promise.all(searchFetches),
+    excludeFetch,
     ...trendingFetches,
   ])
   const allTracks = [...searchPages.flat(), ...trendingPages.flat()]
@@ -618,6 +646,7 @@ export async function fetchRadioTracks({ vibe = 'lofi', limit = 50 } = {}) {
       && (!allowedGenres || allowedGenres.has(t.genre))
       && (!config.bpmMin || (t.bpm && t.bpm >= config.bpmMin))
       && (!config.bpmMax || (t.bpm && t.bpm <= config.bpmMax))
+      && !excludedArtists.has(t.user?.handle?.toLowerCase())
       && passesQualityGate(t)
   })
   return weightedShuffle(filtered)

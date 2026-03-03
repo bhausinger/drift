@@ -240,9 +240,14 @@ export default function TrackInfo({ track, onBlockArtist, onQueueArtistTracks })
         {/* Title + artist */}
         <div className="space-y-1 w-full max-w-[360px] h-[4.5rem] px-2">
           {track && (<>
-            <h2 className="text-white/80 text-lg font-light tracking-wide leading-snug line-clamp-2">
+            <a
+              href={track.permalink ? `https://audius.co${track.permalink}` : `https://audius.co/tracks/${track.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-white/80 hover:text-white/95 text-lg font-light tracking-wide leading-snug line-clamp-2 transition-colors duration-500 block"
+            >
               {track.title}
-            </h2>
+            </a>
             <span className="inline-flex items-center gap-1.5">
               <a
                 href={profileUrl}

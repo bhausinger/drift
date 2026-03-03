@@ -1342,9 +1342,15 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                           </div>
                         </button>
                         <div className="flex-1 min-w-0">
-                          <p className={`text-xs truncate transition-colors duration-200 ${isActive ? 'text-purple-200' : 'text-white'}`}>
+                          <a
+                            href={track.permalink ? `https://audius.co${track.permalink}` : `https://audius.co/tracks/${track.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className={`text-xs truncate transition-colors duration-200 block hover:underline ${isActive ? 'text-purple-200' : 'text-white hover:text-white/80'}`}
+                          >
                             {track.title}
-                          </p>
+                          </a>
                           <p className="text-white/70 text-[10px] truncate">{track.user?.name}</p>
                         </div>
                         <div className="hidden sm:flex items-center gap-4 flex-shrink-0 text-[10px] font-mono text-white/70">
@@ -1485,9 +1491,15 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
 
                         {/* Track info */}
                         <div className="flex-1 min-w-0">
-                          <p className={`text-xs truncate transition-colors duration-200 ${isActive ? 'text-purple-200' : 'text-white'}`}>
+                          <a
+                            href={track.permalink ? `https://audius.co${track.permalink}` : `https://audius.co/tracks/${track.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className={`text-xs truncate transition-colors duration-200 block hover:underline ${isActive ? 'text-purple-200' : 'text-white hover:text-white/80'}`}
+                          >
                             {track.title}
-                          </p>
+                          </a>
                           <p className="text-white/70 text-[10px] truncate">{track.user?.name}</p>
                         </div>
 
