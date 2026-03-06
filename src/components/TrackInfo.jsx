@@ -108,7 +108,7 @@ export default function TrackInfo({ track, onBlockArtist, onQueueArtistTracks })
     <div className="relative" ref={menuRef}>
       <button
         onClick={() => setMenuOpen((v) => !v)}
-        className="p-2.5 -m-1.5 text-white/25 hover:text-white/50 transition-colors duration-200"
+        className="p-2.5 -m-1.5 text-white/35 hover:text-white/55 transition-colors duration-200"
         aria-label="Track options"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">

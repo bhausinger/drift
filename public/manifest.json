@@ -1,0 +1,16 @@
+{
+  "name": "Drift",
+  "short_name": "Drift",
+  "description": "Minimal focus music player streaming from Audius",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050510",
+  "theme_color": "#050510",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

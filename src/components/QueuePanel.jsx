@@ -86,11 +86,11 @@ export default function QueuePanel({ tracks, currentIndex, onJump, onClose }) {
                 {/* Track info */}
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm truncate leading-snug
-                    ${isCurrent ? 'text-white/90' : isPast ? 'text-white/25' : 'text-white/60'}`}>
+                    ${isCurrent ? 'text-white/90' : isPast ? 'text-white/35' : 'text-white/60'}`}>
                     {track.title}
                   </p>
                   <p className={`text-[11px] truncate leading-snug
-                    ${isCurrent ? 'text-white/50' : isPast ? 'text-white/15' : 'text-white/30'}`}>
+                    ${isCurrent ? 'text-white/50' : isPast ? 'text-white/25' : 'text-white/30'}`}>
                     {track.user?.name}
                   </p>
                 </div>

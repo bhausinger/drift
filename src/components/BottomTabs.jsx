@@ -97,7 +97,7 @@ export default function BottomTabs({ activeTab, onTabChange }) {
               className={`flex flex-col items-center justify-center gap-0.5 py-1.5 transition-colors duration-300 min-w-0
                 ${tab.id === 'login'
                   ? 'text-white/30 hover:text-white/50'
-                  : activeTab === tab.id ? 'text-white/80' : 'text-white/25'}`}
+                  : activeTab === tab.id ? 'text-white/80' : 'text-white/35'}`}
             >
               {tab.icon}
               <span className="text-[10px] tracking-wider truncate max-w-[72px]">{tab.label}</span>
@@ -111,7 +111,7 @@ export default function BottomTabs({ activeTab, onTabChange }) {
           target="_blank"
           rel="noopener noreferrer"
           className="hidden sm:flex absolute right-6 items-center gap-1.5
-                     text-white/20 hover:text-white/35 transition-colors duration-500"
+                     text-white/30 hover:text-white/45 transition-colors duration-500"
         >
           <span className="text-[10px] tracking-wider">powered by</span>
           <svg width="14" height="14" viewBox="0 0 1024 1024" fill="currentColor">

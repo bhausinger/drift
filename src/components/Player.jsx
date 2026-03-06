@@ -266,12 +266,12 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
       <VolumeControl audioRef={audioRef} />
 
       <div className="flex items-center gap-2 h-4">
-        <p className="text-white/20 text-[10px] tracking-wider">
+        <p className="text-white/30 text-[10px] tracking-wider">
           {displayNext ? `up next: ${displayNext.title} — ${displayNext.user?.name}` : '\u00A0'}
         </p>
         <button
           onClick={() => setShowQueue((v) => !v)}
-          className="p-1 -m-1 text-white/20 hover:text-white/50 transition-colors"
+          className="p-1 -m-1 text-white/30 hover:text-white/50 transition-colors"
           aria-label="Toggle queue"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

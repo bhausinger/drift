@@ -92,7 +92,7 @@ export default function ProgressBar({ audioRef }) {
           style={{ left: `calc(${progress * 100}% - 6px)` }}
         />
       </div>
-      <div className="flex justify-between text-[10px] text-white/20 tabular-nums -mt-2">
+      <div className="flex justify-between text-[10px] text-white/35 tabular-nums -mt-2">
         <span>{formatTime(currentTime)}</span>
         <span>{formatTime(duration)}</span>
       </div>

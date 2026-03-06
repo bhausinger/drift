@@ -62,7 +62,7 @@ export default function AuthButton() {
     <button
       onClick={login}
       className="fixed bottom-[4.5rem] sm:bottom-5 left-4 sm:left-6 flex items-center gap-2
-                 text-white/25 hover:text-white/40 transition-colors duration-500 z-10"
+                 text-white/35 hover:text-white/50 transition-colors duration-500 z-10"
     >
       <span className="text-[10px] tracking-wider">log in with Audius</span>
     </button>

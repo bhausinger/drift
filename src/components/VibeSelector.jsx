@@ -18,7 +18,7 @@ export default function VibeSelector({ current, onChange }) {
             py-2 px-2 sm:px-3 rounded-md whitespace-nowrap flex-shrink-0
             ${key === current
               ? 'text-white/70'
-              : 'text-white/20 hover:text-white/40'
+              : 'text-white/35 hover:text-white/50'
             }`}
         >
           {label}
