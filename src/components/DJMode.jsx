@@ -60,6 +60,13 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   const [handleList, setHandleList] = useState(() => getHandleList())
   const isTeam = isTeamMember(user)
 
+  // Pre-fetch 140 playlist artists for team members
+  useEffect(() => {
+    if (isTeam && !excludedArtists) {
+      fetchExcludedArtists('l5Q60YO').then(setExcludedArtists)
+    }
+  }, [isTeam])
+
   // Playlist panel — left side library + detail view
   const [playlist, setPlaylist] = useState(() => getDraftPlaylist())
   const [playlistName, setPlaylistName] = useState('')
@@ -867,8 +874,6 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                 setSelectedKey('')
                 setReleasedWithin('14d')
                 setActivePlaylist(null)
-                // Pre-fetch exclusion list so toggle is instant
-                if (!excludedArtists) fetchExcludedArtists('l5Q60YO').then(setExcludedArtists)
                 // Trigger search after state updates
                 setTimeout(() => {
                   document.querySelector('[data-action="dj-search"]')?.click()
