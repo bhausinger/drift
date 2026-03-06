@@ -4,7 +4,7 @@ import {
   searchDJTracks, getStreamUrl, formatDuration, getImageFallback, fetchRandomMix,
   DJ_GENRES, DJ_KEYS, DJ_MOODS,
   getDraftPlaylist, saveDraftPlaylist, fetchUserPlaylists, fetchPlaylistTracks,
-  getBlockedArtists, blockArtist, resolveTrackUrl,
+  getBlockedArtists, blockArtist, resolveTrackUrl, fetchExcludedArtists,
 } from '../utils/audius'
 import { isTeamMember } from '../utils/team'
 import { addHandle, getHandleList } from '../utils/handleList'
@@ -30,6 +30,8 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   const [rawResults, setRawResults] = useState([])
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState(null)
+  const [excludedArtists, setExcludedArtists] = useState(null) // Set of handles from 140 playlist
+  const [excludeEnabled, setExcludeEnabled] = useState(true) // Toggle: exclude 140 playlist artists
 
   // Now playing — initialize from handoff if a track was playing on main
   const [nowPlaying, setNowPlaying] = useState(() => handoffTrackRef?.current?.currentTrack || null)
@@ -186,6 +188,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
     }
     return rawResults.filter((t) => {
       if (blockedArtists.has(t.user?.handle)) return false
+      if (excludeEnabled && excludedArtists && t.user?.handle && excludedArtists.has(t.user.handle.toLowerCase())) return false
       if (minBpm && t.bpm && t.bpm < minBpm) return false
       if (maxBpm && t.bpm && t.bpm > maxBpm) return false
       if (selectedKey && t.musical_key && t.musical_key !== selectedKey) return false
@@ -199,7 +202,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
       }
       return true
     })
-  }, [rawResults, bpmMin, bpmMax, selectedKey, selectedMood, maxDuration, releasedWithin, blockVersion])
+  }, [rawResults, bpmMin, bpmMax, selectedKey, selectedMood, maxDuration, releasedWithin, blockVersion, excludedArtists, excludeEnabled])
 
   // Keep refs in sync for audio event handlers
   useEffect(() => { nowPlayingRef.current = nowPlaying }, [nowPlaying])
@@ -864,6 +867,8 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                 setSelectedKey('')
                 setReleasedWithin('14d')
                 setActivePlaylist(null)
+                // Pre-fetch exclusion list so toggle is instant
+                if (!excludedArtists) fetchExcludedArtists('l5Q60YO').then(setExcludedArtists)
                 // Trigger search after state updates
                 setTimeout(() => {
                   document.querySelector('[data-action="dj-search"]')?.click()
@@ -873,6 +878,19 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                          transition-all duration-300 border bg-white/[0.06] border-white/15 text-white/80 hover:border-white/30 hover:text-white"
             >
               140
+            </button>
+          )}
+          {isTeam && excludedArtists && (
+            <button
+              onClick={() => setExcludeEnabled((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-[10px] tracking-wider uppercase
+                         transition-all duration-300 border
+                ${excludeEnabled
+                  ? 'bg-purple-500/20 border-purple-500/30 text-purple-300'
+                  : 'bg-white/[0.06] border-white/15 text-white/80 hover:border-white/30 hover:text-white'
+                }`}
+            >
+              {excludeEnabled ? 'hiding playlist artists' : 'showing all artists'}
             </button>
           )}
           <button

@@ -474,7 +474,7 @@ async function fetchUndergroundTrending() {
 const excludeCache = {}
 const EXCLUDE_CACHE_TTL = 30 * 60 * 1000
 
-async function fetchExcludedArtists(playlistId) {
+export async function fetchExcludedArtists(playlistId) {
   if (!playlistId) return new Set()
   const cached = excludeCache[playlistId]
   if (cached && Date.now() - cached.time < EXCLUDE_CACHE_TTL) return cached.handles
