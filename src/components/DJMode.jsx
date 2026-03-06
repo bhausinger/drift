@@ -177,6 +177,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
       const cutoffs = {
         '1d': new Date(now - 24 * 60 * 60 * 1000),
         '7d': new Date(now - 7 * 24 * 60 * 60 * 1000),
+        '14d': new Date(now - 14 * 24 * 60 * 60 * 1000),
         '30d': new Date(now - 30 * 24 * 60 * 60 * 1000),
         '6m': new Date(now.getFullYear(), now.getMonth() - 6, now.getDate()),
         '1y': new Date(now.getFullYear(), 0, 1),
@@ -858,10 +859,10 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                 setSelectedGenres(['Dubstep', 'Trap', 'Future Bass', 'Electronic'])
                 setBpmMin('140')
                 setBpmMax('140')
-                setSearchQuery('bass')
+                setSearchQuery('')
                 setSelectedMood('')
                 setSelectedKey('')
-                setReleasedWithin('')
+                setReleasedWithin('14d')
                 setActivePlaylist(null)
                 // Trigger search after state updates
                 setTimeout(() => {
@@ -1059,6 +1060,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
               <option value="">Any time</option>
               <option value="1d">Today</option>
               <option value="7d">This week</option>
+              <option value="14d">Last 2 weeks</option>
               <option value="30d">This month</option>
               <option value="6m">Last 6 months</option>
               <option value="1y">This year</option>
