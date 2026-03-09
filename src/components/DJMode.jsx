@@ -5,6 +5,7 @@ import {
   DJ_GENRES, DJ_KEYS, DJ_MOODS,
   getDraftPlaylist, saveDraftPlaylist, fetchUserPlaylists, fetchPlaylistTracks,
   getBlockedArtists, blockArtist, resolveTrackUrl, fetchExcludedArtists,
+  fetchPlaylistDraft, savePlaylistDraft, clearPlaylistDraft, fetchAllPlaylistDraftIds,
 } from '../utils/audius'
 import { isTeamMember } from '../utils/team'
 import { addHandle, getHandleList } from '../utils/handleList'
@@ -99,29 +100,72 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   // Draft metadata — stored when user fills out the create modal
   const [draftMeta, setDraftMeta] = useState(null)
 
-  // Fetch user's Audius playlists when logged in and panel opens
+  // Set of playlist IDs that have server-side drafts
+  const [draftPlaylistIds, setDraftPlaylistIds] = useState(new Set())
+
+  // Fetch user's Audius playlists and draft IDs when logged in and panel opens
   useEffect(() => {
     if (!user || !showPlaylist) return
     setLoadingPlaylists(true)
-    fetchUserPlaylists(user.userId)
-      .then((pl) => setUserPlaylists(pl))
-      .finally(() => setLoadingPlaylists(false))
+    Promise.all([
+      fetchUserPlaylists(user.userId),
+      fetchAllPlaylistDraftIds(user.userId),
+    ]).then(([pl, draftIds]) => {
+      setUserPlaylists(pl)
+      setDraftPlaylistIds(new Set(draftIds))
+    }).finally(() => setLoadingPlaylists(false))
   }, [user, showPlaylist])
 
   // Sync draft playlist changes back to localStorage
   useEffect(() => { saveDraftPlaylist(playlist) }, [playlist])
 
-  // Open an existing playlist — fetch its tracks and show detail view
+  // Persist draft edits for existing playlists (debounced save to server)
+  const saveDraftTimer = useRef(null)
+  useEffect(() => {
+    if (!user || !activePlaylist || activePlaylist.isNew || !activePlaylist.id || !activePlaylist.originalTracks) return
+    const currentIds = activePlaylist.tracks.map((t) => t.id).join(',')
+    const originalIds = activePlaylist.originalTracks.map((t) => t.id).join(',')
+    const hasChanges = currentIds !== originalIds
+    const plId = activePlaylist.id
+    // Update sidebar indicator immediately
+    setDraftPlaylistIds((prev) => {
+      const next = new Set(prev)
+      if (hasChanges) next.add(plId); else next.delete(plId)
+      return next
+    })
+    clearTimeout(saveDraftTimer.current)
+    saveDraftTimer.current = setTimeout(() => {
+      if (hasChanges) {
+        savePlaylistDraft(user.userId, plId, activePlaylist.tracks)
+      } else {
+        clearPlaylistDraft(user.userId, plId)
+      }
+    }, 1000)
+    return () => clearTimeout(saveDraftTimer.current)
+  }, [activePlaylist, user])
+
+  // Open an existing playlist — fetch its tracks and restore draft if saved
   const openPlaylist = useCallback(async (pl) => {
     setActivePlaylist({ id: pl.id, name: pl.playlistName || pl.playlist_name || 'Untitled', artwork: pl.artwork?.['150x150'] || null, tracks: [], originalTracks: [], isNew: false, description: pl.description || '', isPrivate: pl.is_private ?? pl.isPrivate ?? false })
     setLoadingPlaylistTracks(true)
     try {
-      const tracks = await fetchPlaylistTracks(pl.id)
-      setActivePlaylist((prev) => prev ? { ...prev, tracks, originalTracks: tracks } : null)
+      const [tracks, savedDraft] = await Promise.all([
+        fetchPlaylistTracks(pl.id),
+        user ? fetchPlaylistDraft(user.userId, pl.id) : null,
+      ])
+      setActivePlaylist((prev) => prev ? {
+        ...prev,
+        tracks: savedDraft || tracks,
+        originalTracks: tracks,
+      } : null)
+      if (savedDraft) {
+        setToast('Restored unsaved draft')
+        setTimeout(() => setToast(null), 2000)
+      }
     } finally {
       setLoadingPlaylistTracks(false)
     }
-  }, [])
+  }, [user])
 
   // Open the draft (new) playlist detail view
   const openDraftPlaylist = useCallback(() => {
@@ -443,9 +487,13 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   const handleRevertEdits = useCallback(() => {
     if (!activePlaylist || activePlaylist.isNew || !activePlaylist.originalTracks) return
     setActivePlaylist((prev) => prev ? { ...prev, tracks: [...prev.originalTracks] } : prev)
+    if (user && activePlaylist.id) {
+      clearPlaylistDraft(user.userId, activePlaylist.id)
+      setDraftPlaylistIds((prev) => { const next = new Set(prev); next.delete(activePlaylist.id); return next })
+    }
     setToast('Changes reverted')
     setTimeout(() => setToast(null), 1500)
-  }, [activePlaylist])
+  }, [activePlaylist, user])
 
   // Publish draft edits to Audius
   const [publishingEdits, setPublishingEdits] = useState(false)
@@ -473,8 +521,9 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.error || 'Failed to publish')
       }
-      // Update originalTracks to match current state
+      // Update originalTracks to match current state and clear persisted draft
       setActivePlaylist((prev) => prev ? { ...prev, originalTracks: [...prev.tracks] } : prev)
+      if (activePlaylist.id) clearPlaylistDraft(user.userId, activePlaylist.id)
       setSaveResult('Playlist updated on Audius!')
       setToast('Published to Audius')
       setTimeout(() => { setToast(null); setSaveResult(null) }, 3000)
@@ -1268,6 +1317,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                   {userPlaylists.map((pl) => {
                     const plArt = pl.artwork?.['150x150'] || null
                     const isOpen = activePlaylist?.id === pl.id
+                    const hasDraft = draftPlaylistIds.has(pl.id)
                     return (
                       <button
                         key={pl.id}
@@ -1288,7 +1338,10 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className={`text-[11px] truncate transition-colors ${isOpen ? 'text-purple-200' : 'text-white/90 group-hover:text-white'}`}>{pl.playlistName || pl.playlist_name || 'Untitled'}</p>
-                          <p className="text-white/40 text-[9px]">{pl.trackCount ?? pl.track_count ?? pl.playlist_contents?.length ?? 0} tracks</p>
+                          <p className="text-white/40 text-[9px]">
+                            {pl.trackCount ?? pl.track_count ?? pl.playlist_contents?.length ?? 0} tracks
+                            {hasDraft && <span className="text-amber-400/80"> · unsaved draft</span>}
+                          </p>
                         </div>
                       </button>
                     )
