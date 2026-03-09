@@ -82,6 +82,7 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
   }, [isPlaying, streamUrl])
 
   const crossfadeRef = useRef(null)
+  const skipStreamEffect = useRef(false)
 
   const doCrossfade = useCallback((durationMs) => {
     const audio = audioRef.current
@@ -96,7 +97,7 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
     }
 
     // Cancel any existing crossfade
-    if (crossfadeRef.current) cancelAnimationFrame(crossfadeRef.current)
+    if (crossfadeRef.current) clearTimeout(crossfadeRef.current)
 
     // Grab the preloaded URL before we clear it
     const preloadedUrl = preload.src
@@ -104,26 +105,35 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
     const startVol = audio.volume
     preload.volume = 0
     preload.play().then(() => {
-      const start = performance.now()
-      const tick = (now) => {
-        const t = Math.min((now - start) / durationMs, 1)
+      const start = Date.now()
+      const STEP = 50 // ms between volume steps — works in background tabs
+      const tick = () => {
+        const t = Math.min((Date.now() - start) / durationMs, 1)
         audio.volume = startVol * (1 - t)
         preload.volume = startVol * t
         if (t < 1) {
-          crossfadeRef.current = requestAnimationFrame(tick)
+          crossfadeRef.current = setTimeout(tick, STEP)
         } else {
-          // Swap preloaded URL onto main element so streamUrl effect won't re-fetch
+          // Transfer playback from preload to main audio, preserving position
+          const resumeTime = preload.currentTime
           preload.pause()
           preload.removeAttribute('src')
           audio.src = preloadedUrl
           audio.volume = startVol
           audio.load()
+          // Seek to where the preload was playing so it doesn't restart
+          const onLoaded = () => {
+            audio.currentTime = resumeTime
+            audio.removeEventListener('loadeddata', onLoaded)
+          }
+          audio.addEventListener('loadeddata', onLoaded)
           audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
           wantsToPlay.current = true
+          skipStreamEffect.current = true
           nextTrack()
         }
       }
-      crossfadeRef.current = requestAnimationFrame(tick)
+      crossfadeRef.current = setTimeout(tick, STEP)
     }).catch(() => {
       if (durationMs <= 1000) {
         audio.pause()
@@ -250,6 +260,8 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !streamUrl) return
+    // Skip if crossfade already loaded this track onto the audio element
+    if (skipStreamEffect.current) { skipStreamEffect.current = false; return }
     if (audio.src === streamUrl) return
 
     // On first mount after Deep Dive, don't override audio that's already playing
