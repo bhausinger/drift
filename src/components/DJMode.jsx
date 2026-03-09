@@ -27,6 +27,8 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   const [minDuration, setMinDuration] = useState('')
   const [maxDuration, setMaxDuration] = useState('')
   const [releasedWithin, setReleasedWithin] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [splitTab, setSplitTab] = useState('search') // mobile tab: 'search' | 'playlist'
 
   // Results — rawResults from API, filtered live by BPM/key/mood/genre
   const [rawResults, setRawResults] = useState([])
@@ -52,6 +54,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   // Drag-and-drop reorder state
   const [dragIdx, setDragIdx] = useState(null)
   const [dragOverIdx, setDragOverIdx] = useState(null)
+  const dragOverIdxRef = useRef(null)
 
   // Repeat mode: 'off' | 'all' | 'one'
   const [repeatMode, setRepeatMode] = useState('off')
@@ -147,6 +150,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   // Open an existing playlist — fetch its tracks and restore draft if saved
   const openPlaylist = useCallback(async (pl) => {
     setActivePlaylist({ id: pl.id, name: pl.playlistName || pl.playlist_name || 'Untitled', artwork: pl.artwork?.['150x150'] || null, tracks: [], originalTracks: [], isNew: false, description: pl.description || '', isPrivate: pl.is_private ?? pl.isPrivate ?? false })
+    setShowPlaylist(false) // Auto-hide library sidebar to give split view full width
     setLoadingPlaylistTracks(true)
     try {
       const [tracks, savedDraft] = await Promise.all([
@@ -170,12 +174,14 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   // Open the draft (new) playlist detail view
   const openDraftPlaylist = useCallback(() => {
     setActivePlaylist({ id: null, name: draftMeta?.name || playlistName || 'New Playlist', artwork: draftMeta?.artwork || null, tracks: playlist, isNew: true })
+    setShowPlaylist(false)
   }, [playlist, playlistName, draftMeta])
 
   // Go back to the library list
   const backToLibrary = useCallback(() => {
     setActivePlaylist(null)
     setSaveResult(null)
+    setShowPlaylist(true) // Re-open library sidebar
   }, [])
 
   // Per-track like/repost state  { trackId: true }
@@ -210,6 +216,17 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
       setSearching(false)
     }
   }, [searchQuery, selectedGenres, selectedMood, bpmMin, bpmMax, selectedKey, releasedWithin])
+
+  // Auto-search on type (debounced)
+  const searchFnRef = useRef(handleSearch)
+  searchFnRef.current = handleSearch
+  const searchTimerRef = useRef(null)
+  useEffect(() => {
+    if (searchQuery.length < 2) return
+    clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => searchFnRef.current(), 500)
+    return () => clearTimeout(searchTimerRef.current)
+  }, [searchQuery])
 
   const handleRandomize = useCallback(async () => {
     setSearching(true)
@@ -424,6 +441,8 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
         if (prev.tracks.some((t) => t.id === track.id)) return prev
         return { ...prev, tracks: [...prev.tracks, track] }
       })
+      setToast(`Added to ${activePlaylist.name}`)
+      setTimeout(() => setToast(null), 1500)
     } else {
       // No active playlist — add to draft and auto-activate draft view
       setPlaylist((prev) => {
@@ -988,6 +1007,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                 setMinDuration('1')
                 setMaxDuration('7')
                 setReleasedWithin('14d')
+                setShowAdvanced(true)
                 setActivePlaylist(null)
                 // Trigger search after state updates
                 setTimeout(() => {
@@ -1066,7 +1086,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
               placeholder="Search tracks, artists..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleSearch() }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { clearTimeout(searchTimerRef.current); handleSearch() } }}
               className="w-full bg-white/[0.06] border border-white/10 rounded-xl pl-10 pr-24 py-2.5 text-sm text-white
                          placeholder:text-white/40 focus:outline-none focus:border-purple-500/40 focus:bg-white/[0.08]
                          transition-all duration-300"
@@ -1089,7 +1109,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
               </button>
               <button
                 data-action="dj-search"
-                onClick={handleSearch}
+                onClick={() => { clearTimeout(searchTimerRef.current); handleSearch() }}
                 disabled={searching}
                 className="px-4 py-1.5
                            bg-purple-500/20 hover:bg-purple-500/30 text-purple-300/90 text-[11px] tracking-wider uppercase
@@ -1121,8 +1141,28 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
           </div>
         </div>
 
+        {/* Advanced filters toggle */}
+        {(() => {
+          const count = [bpmMin, bpmMax, selectedKey, selectedMood, minDuration, maxDuration, releasedWithin].filter(Boolean).length
+          return (
+            <div className="flex justify-center">
+              <button
+                onClick={() => setShowAdvanced((v) => !v)}
+                className={`flex items-center gap-1.5 text-[10px] tracking-wider uppercase transition-all duration-300
+                  ${showAdvanced ? 'text-purple-300' : 'text-white/40 hover:text-white/60'}`}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                  className={`transition-transform duration-300 ${showAdvanced ? 'rotate-180' : ''}`}>
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+                filters{count > 0 && <span className="ml-1 px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded-full text-[9px]">{count}</span>}
+              </button>
+            </div>
+          )
+        })()}
+
         {/* BPM + Key + Mood + Duration — centered */}
-        <div className="flex flex-wrap items-end justify-center gap-3 sm:gap-4">
+        {showAdvanced && <div className="flex flex-wrap items-end justify-center gap-3 sm:gap-4">
           <div className="flex items-end gap-1.5">
             <div>
               <label className="text-white/80 text-[10px] tracking-wider uppercase block mb-1">BPM</label>
@@ -1219,7 +1259,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
               <option value="1y">This year</option>
             </select>
           </div>
-        </div>
+        </div>}
 
         {/* Divider */}
         <div className="max-w-4xl mx-auto w-full border-b border-white/[0.06]" />
@@ -1361,345 +1401,22 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
           />
         )}
 
-        {/* Results / Playlist tracks */}
-        <div className="flex-1 overflow-y-auto min-h-0">
-          {activePlaylist ? (
-            <div className="max-w-4xl mx-auto px-6 sm:px-8 pb-4">
-              {/* Playlist header */}
-              <div className="flex items-center gap-4 py-4">
-                <button
-                  onClick={backToLibrary}
-                  className="text-white/50 hover:text-white/80 transition-colors p-1"
-                  aria-label="Back to search"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="15 18 9 12 15 6" />
-                  </svg>
-                </button>
-                <div className="w-12 h-12 rounded-lg overflow-hidden bg-white/[0.06] flex-shrink-0">
-                  {activePlaylist.artwork ? (
-                    <img src={activePlaylist.artwork} alt="" className="w-full h-full object-cover opacity-80" onError={handleImgError} />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/20">
-                        <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
-                      </svg>
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-white/90 text-sm font-medium truncate">{activePlaylist.name}</h3>
-                  <p className="text-white/40 text-[10px]">
-                    {activePlaylist.tracks.length} track{activePlaylist.tracks.length !== 1 ? 's' : ''}
-                    {activePlaylist.isNew && ' · draft'}
-                    {hasDraftChanges && ' · unsaved changes'}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end max-w-[50%] sm:max-w-none">
-                  {activePlaylist.tracks.length > 0 && (
-                    <button
-                      onClick={handlePlaylistRadio}
-                      className="p-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80
-                                 rounded-lg transition-all duration-300"
-                      title="Start radio from playlist"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="12" cy="12" r="2" />
-                        <path d="M16.24 7.76a6 6 0 0 1 0 8.49" />
-                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                        <path d="M7.76 16.24a6 6 0 0 1 0-8.49" />
-                        <path d="M4.93 19.07a10 10 0 0 1 0-14.14" />
-                      </svg>
-                    </button>
-                  )}
-                  {!activePlaylist.isNew && (
-                    <button
-                      onClick={openEditModal}
-                      className="p-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80
-                                 rounded-lg transition-all duration-300"
-                      title="Edit playlist"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                      </svg>
-                    </button>
-                  )}
-                  {activePlaylist.tracks.length > 0 && (
-                    <button
-                      onClick={handleCopyAllUrls}
-                      className="px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80 text-[10px]
-                                 tracking-wider rounded-lg transition-all duration-300 uppercase"
-                      title="Copy all track URLs"
-                    >
-                      copy urls
-                    </button>
-                  )}
-                  <button
-                    onClick={() => setShowPastePanel((v) => !v)}
-                    className={`px-2.5 py-1.5 text-[10px] tracking-wider rounded-lg transition-all duration-300 uppercase
-                      ${showPastePanel
-                        ? 'bg-purple-500/20 border border-purple-500/30 text-purple-300'
-                        : 'bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80'}`}
-                  >
-                    paste urls
-                  </button>
-                  {activePlaylist.isNew && (
-                    <button
-                      onClick={handlePublishPlaylist}
-                      disabled={saving || !draftMeta?.name}
-                      className="px-3 py-1.5 bg-purple-500/25 hover:bg-purple-500/35 text-purple-200 text-[10px]
-                                 tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30
-                                 disabled:cursor-not-allowed uppercase"
-                    >
-                      {saving ? 'saving...' : 'save to audius'}
-                    </button>
-                  )}
-                  {hasDraftChanges && (
-                    <>
-                      <button
-                        onClick={handleRevertEdits}
-                        className="px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80 text-[10px]
-                                   tracking-wider rounded-lg transition-all duration-300 uppercase"
-                      >
-                        revert
-                      </button>
-                      <button
-                        onClick={() => handlePublishEdits('append')}
-                        disabled={publishingEdits}
-                        className="px-2.5 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px]
-                                   tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30 uppercase"
-                        title="Only add new tracks, keep existing"
-                      >
-                        {publishingEdits ? '...' : 'add new'}
-                      </button>
-                      <button
-                        onClick={() => handlePublishEdits('replace')}
-                        disabled={publishingEdits}
-                        className="px-3 py-1.5 bg-purple-500/25 hover:bg-purple-500/35 text-purple-200 text-[10px]
-                                   tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30 uppercase"
-                        title="Replace playlist with current track list"
-                      >
-                        {publishingEdits ? 'publishing...' : 'publish'}
-                      </button>
-                    </>
-                  )}
-                </div>
+        {/* Results / Playlist tracks — side-by-side when playlist is active on desktop */}
+        <div className={`flex-1 min-h-0 overflow-hidden ${activePlaylist ? 'flex flex-col sm:flex-row' : 'flex'}`}>
+
+          {/* === LEFT COLUMN: Search results === */}
+          <div className={`overflow-y-auto min-h-0
+            ${activePlaylist
+              ? `sm:w-1/2 sm:border-r sm:border-white/[0.06] ${splitTab === 'search' ? '' : 'hidden sm:block'}`
+              : 'flex-1'}`}
+          >
+            {searching && (
+              <div className="flex justify-center py-12">
+                <div className="w-5 h-5 border border-purple-400/30 border-t-purple-400/80 rounded-full animate-spin" />
               </div>
-              {saveResult && (
-                <p className={`text-[10px] px-4 pb-2 ${saveResult.startsWith('Error') ? 'text-red-400/80' : 'text-emerald-400/80'}`}>
-                  {saveResult}
-                </p>
-              )}
+            )}
 
-              {/* Paste URLs panel */}
-              {showPastePanel && (
-                <div className="mb-3 bg-white/[0.04] border border-white/10 rounded-lg p-3 space-y-2">
-                  <textarea
-                    value={pasteText}
-                    onChange={(e) => setPasteText(e.target.value)}
-                    placeholder="Paste Audius URLs here, one per line..."
-                    rows={4}
-                    className="w-full bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-xs text-white
-                               placeholder:text-white/40 focus:outline-none focus:border-purple-500/40 transition-colors duration-300
-                               resize-none font-mono"
-                  />
-                  <div className="flex items-center justify-between">
-                    <p className="text-white/30 text-[9px]">
-                      {pasteText.split(/[\n,\s]+/).filter((s) => s.includes('audius.co')).length} URL{pasteText.split(/[\n,\s]+/).filter((s) => s.includes('audius.co')).length !== 1 ? 's' : ''} detected
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => { setShowPastePanel(false); setPasteText('') }}
-                        className="px-2.5 py-1 text-[10px] text-white/50 hover:text-white/80 transition-colors"
-                      >
-                        cancel
-                      </button>
-                      {activePlaylist.tracks.length > 0 && (
-                        <button
-                          onClick={() => handleSubmitPasteUrls(true)}
-                          disabled={pasteLoading || !pasteText.trim()}
-                          className="px-3 py-1 bg-red-500/15 hover:bg-red-500/25 text-red-300/90 text-[10px]
-                                     tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30 uppercase"
-                          title="Remove current tracks and replace with pasted URLs"
-                        >
-                          {pasteLoading ? '...' : 'replace all'}
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleSubmitPasteUrls(false)}
-                        disabled={pasteLoading || !pasteText.trim()}
-                        className="px-3 py-1 bg-purple-500/25 hover:bg-purple-500/35 text-purple-200 text-[10px]
-                                   tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30 uppercase"
-                        title="Keep current tracks and add these"
-                      >
-                        {pasteLoading ? 'adding...' : 'keep & add'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {loadingPlaylistTracks ? (
-                <div className="flex justify-center py-16">
-                  <div className="w-5 h-5 border border-purple-400/30 border-t-purple-400/80 rounded-full animate-spin" />
-                </div>
-              ) : activePlaylist.tracks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 gap-3">
-                  <svg className="text-white/20" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
-                  </svg>
-                  <p className="text-white/40 text-xs">
-                    {activePlaylist.isNew ? 'Search for tracks and tap + to add them' : 'No tracks in this playlist'}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-0.5">
-                  {activePlaylist.tracks.map((track, trackIdx) => {
-                    const isActive = nowPlaying?.id === track.id
-                    const art = artwork(track)
-                    return (
-                      <div
-                        key={track.id}
-                        draggable
-                        onDragStart={(e) => { setDragIdx(trackIdx); e.dataTransfer.effectAllowed = 'move' }}
-                        onDragOver={(e) => { e.preventDefault(); setDragOverIdx(trackIdx) }}
-                        onDragEnd={() => { if (dragIdx !== null && dragOverIdx !== null) handleDragDrop(dragIdx, dragOverIdx); setDragIdx(null); setDragOverIdx(null) }}
-                        className={`flex items-center gap-3 py-2.5 sm:py-2 px-3 -mx-3 rounded-lg transition-all duration-200
-                          ${dragOverIdx === trackIdx && dragIdx !== null && dragIdx !== trackIdx ? 'border-t-2 border-purple-400/50' : 'border-t-2 border-transparent'}
-                          ${dragIdx === trackIdx ? 'opacity-40' : ''}
-                          ${isActive ? 'bg-purple-500/10' : 'hover:bg-white/[0.04]'}`}
-                      >
-                        {/* Drag handle */}
-                        <div className="flex-shrink-0 cursor-grab active:cursor-grabbing text-white/20 hover:text-white/50 transition-colors">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                            <circle cx="9" cy="5" r="1.5" /><circle cx="15" cy="5" r="1.5" />
-                            <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
-                            <circle cx="9" cy="19" r="1.5" /><circle cx="15" cy="19" r="1.5" />
-                          </svg>
-                        </div>
-                        <button
-                          onClick={() => handlePreview(track)}
-                          className="relative flex-shrink-0 w-10 h-10 sm:w-9 sm:h-9 rounded-md overflow-hidden bg-white/[0.06] group"
-                          aria-label={isActive ? 'Stop preview' : 'Preview'}
-                        >
-                          {art ? (
-                            <img src={art} alt="" className="w-full h-full object-cover opacity-70 group-hover:opacity-50 transition-opacity" onError={handleImgError} />
-                          ) : (
-                            <div className="w-full h-full bg-white/[0.04]" />
-                          )}
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            {isActive && isPlaying ? (
-                              <svg className="text-purple-300" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                                <rect x="6" y="4" width="4" height="16" />
-                                <rect x="14" y="4" width="4" height="16" />
-                              </svg>
-                            ) : (
-                              <svg className="text-white/60 opacity-0 group-hover:opacity-100 transition-opacity" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                                <polygon points="5,3 19,12 5,21" />
-                              </svg>
-                            )}
-                          </div>
-                        </button>
-                        <div className="flex-1 min-w-0">
-                          <a
-                            href={track.permalink ? `https://audius.co${track.permalink}` : `https://audius.co/tracks/${track.id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className={`text-xs truncate transition-colors duration-200 block hover:underline ${isActive ? 'text-purple-200' : 'text-white hover:text-white/80'}`}
-                          >
-                            {track.title}
-                          </a>
-                          <p className="text-white/70 text-[10px] truncate">{track.user?.name}</p>
-                        </div>
-                        <div className="hidden sm:flex items-center gap-4 flex-shrink-0 text-[10px] font-mono text-white/70">
-                          {track.bpm ? <span className="w-14 text-right">{Math.round(track.bpm)} bpm</span> : <span className="w-14" />}
-                          <span className="w-10 text-right">{formatDuration(track.duration)}</span>
-                        </div>
-                        {isTeam && track.user?.handle && (
-                          <button
-                            onClick={() => {
-                              const updated = addHandle(track.user.handle)
-                              setHandleList(updated)
-                              setToast(`Added @${track.user.handle}`)
-                              setTimeout(() => setToast(null), 1500)
-                            }}
-                            className={`flex-shrink-0 p-1 transition-colors duration-200 ${handleList.includes(track.user.handle.toLowerCase()) ? 'text-purple-400/50' : 'text-white/20 hover:text-white/40'}`}
-                            aria-label="Add handle to list"
-                            title={`Add @${track.user.handle}`}
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                            </svg>
-                          </button>
-                        )}
-                        <div className="relative flex-shrink-0">
-                          <button
-                            onClick={() => setMenuTrackId(menuTrackId === track.id ? null : track.id)}
-                            className="p-1.5 text-white/50 hover:text-white/80 transition-colors duration-200 rounded"
-                            aria-label="Track options"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                              <circle cx="12" cy="5" r="1.5" />
-                              <circle cx="12" cy="12" r="1.5" />
-                              <circle cx="12" cy="19" r="1.5" />
-                            </svg>
-                          </button>
-                          {menuTrackId === track.id && (
-                            <div
-                              ref={menuRef}
-                              className="absolute right-0 top-full mt-1 z-50 bg-black/80 backdrop-blur-md border border-white/10
-                                         rounded-lg shadow-xl shadow-black/50 py-1 min-w-[170px]"
-                            >
-                              <button
-                                onClick={() => removeFromPlaylist(track.id)}
-                                className="w-full text-left px-3 py-1.5 text-xs text-red-400/80 hover:bg-white/[0.06] hover:text-red-300 transition-colors flex items-center gap-2"
-                              >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <line x1="5" y1="12" x2="19" y2="12" />
-                                </svg>
-                                Remove from playlist
-                              </button>
-                              <button
-                                onClick={() => handleCopyLink(track)}
-                                className="w-full text-left px-3 py-1.5 text-xs text-white/80 hover:bg-white/[0.06] hover:text-white transition-colors flex items-center gap-2"
-                              >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                                </svg>
-                                {copiedTrackId === track.id ? 'Copied!' : 'Copy link'}
-                              </button>
-                              <button
-                                onClick={() => handleBlockArtist(track)}
-                                className="w-full text-left px-3 py-1.5 text-xs text-red-400/80 hover:bg-white/[0.06] hover:text-red-300 transition-colors flex items-center gap-2"
-                              >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <circle cx="12" cy="12" r="10" />
-                                  <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-                                </svg>
-                                Hide artist
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          ) : (
-            <>
-              {searching && (
-                <div className="flex justify-center py-16">
-                  <div className="w-5 h-5 border border-purple-400/30 border-t-purple-400/80 rounded-full animate-spin" />
-                </div>
-              )}
-
-              <div className={`max-w-4xl mx-auto px-6 sm:px-8 pb-4 ${!searching && results.length === 0 ? 'hidden' : ''}`}>
+            <div className={`max-w-3xl mx-auto px-4 sm:px-6 pb-4 ${!searching && results.length === 0 ? 'hidden' : ''}`}>
                 {searchError && (
                   <p className="text-red-400/80 text-xs py-2">{searchError}</p>
                 )}
@@ -1760,18 +1477,27 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                           >
                             {track.title}
                           </a>
-                          <p className="text-white/70 text-[10px] truncate">{track.user?.name}</p>
+                          <p className="text-white/70 text-[10px] truncate">
+                            {track.user?.name}
+                            {activePlaylist && track.bpm ? <span className="text-white/40 ml-1.5">· {Math.round(track.bpm)} bpm</span> : ''}
+                            {activePlaylist && track.musical_key ? <span className="text-white/40 ml-1">· {track.musical_key}</span> : ''}
+                          </p>
                         </div>
 
-                        {/* Metadata */}
-                        <div className="hidden sm:flex items-center gap-4 flex-shrink-0 text-[10px] font-mono text-white/70">
-                          {track.bpm ? <span className="w-14 text-right">{Math.round(track.bpm)} bpm</span> : <span className="w-14" />}
-                          {track.musical_key ? <span className="w-20 text-right">{track.musical_key}</span> : <span className="w-20" />}
-                          <span className="w-10 text-right">{formatDuration(track.duration)}</span>
-                        </div>
+                        {/* Metadata columns — full view only (hidden in split view) */}
+                        {!activePlaylist && (
+                          <div className="hidden sm:flex items-center gap-4 flex-shrink-0 text-[10px] font-mono text-white/70">
+                            {track.bpm ? <span className="w-14 text-right">{Math.round(track.bpm)} bpm</span> : <span className="w-14" />}
+                            {track.musical_key ? <span className="w-20 text-right">{track.musical_key}</span> : <span className="w-20" />}
+                            <span className="w-10 text-right">{formatDuration(track.duration)}</span>
+                          </div>
+                        )}
+                        {activePlaylist && (
+                          <span className="hidden sm:inline flex-shrink-0 text-[10px] font-mono text-white/50">{formatDuration(track.duration)}</span>
+                        )}
 
-                        {/* Add handle to list (team only) */}
-                        {isTeam && track.user?.handle && (
+                        {/* Add handle to list (team only) — hide in split view */}
+                        {!activePlaylist && isTeam && track.user?.handle && (
                           <button
                             onClick={() => {
                               const updated = addHandle(track.user.handle)
@@ -1790,28 +1516,30 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                           </button>
                         )}
 
-                        {/* Start radio from track */}
-                        <button
-                          onClick={() => handleStartRadio(track)}
-                          className="flex-shrink-0 p-1 text-white/30 hover:text-purple-300 transition-colors duration-200"
-                          aria-label="Start radio"
-                          title="Start radio"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <circle cx="12" cy="12" r="2" />
-                            <path d="M16.24 7.76a6 6 0 0 1 0 8.49" />
-                            <path d="M7.76 16.24a6 6 0 0 1 0-8.49" />
-                          </svg>
-                        </button>
-
-                        {/* Add to playlist button (visible when panel is open) */}
-                        {showPlaylist && (
+                        {/* Start radio — hide in split view */}
+                        {!activePlaylist && (
                           <button
-                            onClick={(e) => showPlaylistPicker(track, e)}
+                            onClick={() => handleStartRadio(track)}
+                            className="flex-shrink-0 p-1 text-white/30 hover:text-purple-300 transition-colors duration-200"
+                            aria-label="Start radio"
+                            title="Start radio"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <circle cx="12" cy="12" r="2" />
+                              <path d="M16.24 7.76a6 6 0 0 1 0 8.49" />
+                              <path d="M7.76 16.24a6 6 0 0 1 0-8.49" />
+                            </svg>
+                          </button>
+                        )}
+
+                        {/* Add to playlist button — always visible when a playlist is active, or when panel is open */}
+                        {(activePlaylist || showPlaylist) && (
+                          <button
+                            onClick={(e) => activePlaylist ? addToPlaylistDirect(track) : showPlaylistPicker(track, e)}
                             disabled={inActive}
-                            className={`flex-shrink-0 p-1 transition-colors duration-200
-                              ${inActive ? 'text-purple-400/50' : 'text-white/30 hover:text-purple-300'}`}
-                            aria-label="Add to playlist"
+                            className={`flex-shrink-0 p-1.5 transition-colors duration-200 rounded-md
+                              ${inActive ? 'text-purple-400/50' : 'text-white/30 hover:text-purple-300 hover:bg-white/[0.06]'}`}
+                            aria-label={activePlaylist ? `Add to ${activePlaylist.name}` : 'Add to playlist'}
                           >
                             {inActive ? (
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1914,7 +1642,332 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                   })}
                 </div>
               </div>
-            </>
+          </div>
+
+          {/* === RIGHT COLUMN: Active playlist (only when one is open) === */}
+          {activePlaylist && (
+            <div className={`overflow-y-auto min-h-0
+              sm:w-1/2 ${splitTab === 'playlist' ? '' : 'hidden sm:block'}`}
+            >
+              <div className="px-4 sm:px-6 pb-4">
+                {/* Playlist header */}
+                <div className="flex items-center gap-3 py-3 sticky top-0 bg-black/80 backdrop-blur-sm z-10">
+                  <button
+                    onClick={backToLibrary}
+                    className="text-white/50 hover:text-white/80 transition-colors p-1"
+                    aria-label="Back to library"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                  </button>
+                  <div className="w-9 h-9 rounded-lg overflow-hidden bg-white/[0.06] flex-shrink-0">
+                    {activePlaylist.artwork ? (
+                      <img src={activePlaylist.artwork} alt="" className="w-full h-full object-cover opacity-80" onError={handleImgError} />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/20">
+                          <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-white/90 text-xs font-medium truncate">{activePlaylist.name}</h3>
+                    <p className="text-white/40 text-[9px]">
+                      {activePlaylist.tracks.length} track{activePlaylist.tracks.length !== 1 ? 's' : ''}
+                      {activePlaylist.isNew && ' · draft'}
+                      {hasDraftChanges && ' · unsaved changes'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Playlist action buttons */}
+                <div className="flex items-center gap-1.5 flex-wrap pb-3">
+                  {activePlaylist.tracks.length > 0 && (
+                    <button
+                      onClick={handlePlaylistRadio}
+                      className="p-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80
+                                 rounded-lg transition-all duration-300"
+                      title="Start radio from playlist"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="2" />
+                        <path d="M16.24 7.76a6 6 0 0 1 0 8.49" />
+                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                        <path d="M7.76 16.24a6 6 0 0 1 0-8.49" />
+                        <path d="M4.93 19.07a10 10 0 0 1 0-14.14" />
+                      </svg>
+                    </button>
+                  )}
+                  {!activePlaylist.isNew && (
+                    <button
+                      onClick={openEditModal}
+                      className="p-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80
+                                 rounded-lg transition-all duration-300"
+                      title="Edit playlist"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                  )}
+                  {activePlaylist.tracks.length > 0 && (
+                    <button
+                      onClick={handleCopyAllUrls}
+                      className="px-2 py-1 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80 text-[9px]
+                                 tracking-wider rounded-lg transition-all duration-300 uppercase"
+                      title="Copy all track URLs"
+                    >
+                      copy urls
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setShowPastePanel((v) => !v)}
+                    className={`px-2 py-1 text-[9px] tracking-wider rounded-lg transition-all duration-300 uppercase
+                      ${showPastePanel
+                        ? 'bg-purple-500/20 border border-purple-500/30 text-purple-300'
+                        : 'bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80'}`}
+                  >
+                    paste urls
+                  </button>
+                  {activePlaylist.isNew && (
+                    <button
+                      onClick={handlePublishPlaylist}
+                      disabled={saving || !draftMeta?.name}
+                      className="px-2.5 py-1 bg-purple-500/25 hover:bg-purple-500/35 text-purple-200 text-[9px]
+                                 tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30
+                                 disabled:cursor-not-allowed uppercase"
+                    >
+                      {saving ? 'saving...' : 'save to audius'}
+                    </button>
+                  )}
+                  {hasDraftChanges && (
+                    <>
+                      <button
+                        onClick={handleRevertEdits}
+                        className="px-2 py-1 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80 text-[9px]
+                                   tracking-wider rounded-lg transition-all duration-300 uppercase"
+                      >
+                        revert
+                      </button>
+                      <button
+                        onClick={() => handlePublishEdits('replace')}
+                        disabled={publishingEdits}
+                        className="px-2.5 py-1 bg-purple-500/25 hover:bg-purple-500/35 text-purple-200 text-[9px]
+                                   tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30 uppercase"
+                        title="Replace playlist with current track list"
+                      >
+                        {publishingEdits ? 'publishing...' : 'publish'}
+                      </button>
+                    </>
+                  )}
+                </div>
+                {saveResult && (
+                  <p className={`text-[10px] pb-2 ${saveResult.startsWith('Error') ? 'text-red-400/80' : 'text-emerald-400/80'}`}>
+                    {saveResult}
+                  </p>
+                )}
+
+                {/* Paste URLs panel */}
+                {showPastePanel && (
+                  <div className="mb-3 bg-white/[0.04] border border-white/10 rounded-lg p-3 space-y-2">
+                    <textarea
+                      value={pasteText}
+                      onChange={(e) => setPasteText(e.target.value)}
+                      placeholder="Paste Audius URLs here, one per line..."
+                      rows={3}
+                      className="w-full bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-xs text-white
+                                 placeholder:text-white/40 focus:outline-none focus:border-purple-500/40 transition-colors duration-300
+                                 resize-none font-mono"
+                    />
+                    <div className="flex items-center justify-between">
+                      <p className="text-white/30 text-[9px]">
+                        {pasteText.split(/[\n,\s]+/).filter((s) => s.includes('audius.co')).length} URLs
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => { setShowPastePanel(false); setPasteText('') }}
+                          className="px-2 py-0.5 text-[9px] text-white/50 hover:text-white/80 transition-colors"
+                        >
+                          cancel
+                        </button>
+                        {activePlaylist.tracks.length > 0 && (
+                          <button
+                            onClick={() => handleSubmitPasteUrls(true)}
+                            disabled={pasteLoading || !pasteText.trim()}
+                            className="px-2 py-0.5 bg-red-500/15 hover:bg-red-500/25 text-red-300/90 text-[9px]
+                                       tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30 uppercase"
+                          >
+                            {pasteLoading ? '...' : 'replace all'}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleSubmitPasteUrls(false)}
+                          disabled={pasteLoading || !pasteText.trim()}
+                          className="px-2 py-0.5 bg-purple-500/25 hover:bg-purple-500/35 text-purple-200 text-[9px]
+                                     tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30 uppercase"
+                        >
+                          {pasteLoading ? 'adding...' : 'keep & add'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {loadingPlaylistTracks ? (
+                  <div className="flex justify-center py-12">
+                    <div className="w-5 h-5 border border-purple-400/30 border-t-purple-400/80 rounded-full animate-spin" />
+                  </div>
+                ) : activePlaylist.tracks.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 gap-3">
+                    <svg className="text-white/20" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+                    </svg>
+                    <p className="text-white/40 text-xs">
+                      {activePlaylist.isNew ? 'Search for tracks and tap + to add them' : 'No tracks in this playlist'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-0.5">
+                    {activePlaylist.tracks.map((track, trackIdx) => {
+                      const isActive = nowPlaying?.id === track.id
+                      const art = artwork(track)
+                      return (
+                        <div
+                          key={track.id}
+                          draggable
+                          onDragStart={(e) => { setDragIdx(trackIdx); e.dataTransfer.effectAllowed = 'move' }}
+                          onDragOver={(e) => { e.preventDefault(); if (dragOverIdxRef.current !== trackIdx) { dragOverIdxRef.current = trackIdx; setDragOverIdx(trackIdx) } }}
+                          onDragEnd={() => { const from = dragIdx; const to = dragOverIdxRef.current; if (from !== null && to !== null) handleDragDrop(from, to); setDragIdx(null); setDragOverIdx(null); dragOverIdxRef.current = null }}
+                          className={`flex items-center gap-2 py-2 px-2 -mx-2 rounded-lg transition-all duration-200
+                            ${dragOverIdx === trackIdx && dragIdx !== null && dragIdx !== trackIdx ? 'border-t-2 border-purple-400/50' : 'border-t-2 border-transparent'}
+                            ${dragIdx === trackIdx ? 'opacity-40' : ''}
+                            ${isActive ? 'bg-purple-500/10' : 'hover:bg-white/[0.04]'}`}
+                        >
+                          {/* Drag handle */}
+                          <div className="flex-shrink-0 cursor-grab active:cursor-grabbing text-white/20 hover:text-white/50 transition-colors">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                              <circle cx="9" cy="5" r="1.5" /><circle cx="15" cy="5" r="1.5" />
+                              <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+                              <circle cx="9" cy="19" r="1.5" /><circle cx="15" cy="19" r="1.5" />
+                            </svg>
+                          </div>
+                          <button
+                            onClick={() => handlePreview(track)}
+                            className="relative flex-shrink-0 w-8 h-8 rounded-md overflow-hidden bg-white/[0.06] group"
+                            aria-label={isActive ? 'Stop preview' : 'Preview'}
+                          >
+                            {art ? (
+                              <img src={art} alt="" className="w-full h-full object-cover opacity-70 group-hover:opacity-50 transition-opacity" onError={handleImgError} />
+                            ) : (
+                              <div className="w-full h-full bg-white/[0.04]" />
+                            )}
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              {isActive && isPlaying ? (
+                                <svg className="text-purple-300" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                  <rect x="6" y="4" width="4" height="16" />
+                                  <rect x="14" y="4" width="4" height="16" />
+                                </svg>
+                              ) : (
+                                <svg className="text-white/60 opacity-0 group-hover:opacity-100 transition-opacity" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                  <polygon points="5,3 19,12 5,21" />
+                                </svg>
+                              )}
+                            </div>
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <a
+                              href={track.permalink ? `https://audius.co${track.permalink}` : `https://audius.co/tracks/${track.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className={`text-[11px] truncate transition-colors duration-200 block hover:underline ${isActive ? 'text-purple-200' : 'text-white hover:text-white/80'}`}
+                            >
+                              {track.title}
+                            </a>
+                            <p className="text-white/50 text-[9px] truncate">{track.user?.name}</p>
+                          </div>
+                          <span className="hidden sm:inline text-[9px] font-mono text-white/40 flex-shrink-0">{formatDuration(track.duration)}</span>
+                          <div className="relative flex-shrink-0">
+                            <button
+                              onClick={() => setMenuTrackId(menuTrackId === track.id ? null : track.id)}
+                              className="p-1 text-white/40 hover:text-white/70 transition-colors duration-200 rounded"
+                              aria-label="Track options"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                <circle cx="12" cy="5" r="1.5" />
+                                <circle cx="12" cy="12" r="1.5" />
+                                <circle cx="12" cy="19" r="1.5" />
+                              </svg>
+                            </button>
+                            {menuTrackId === track.id && (
+                              <div
+                                ref={menuRef}
+                                className="absolute right-0 top-full mt-1 z-50 bg-black/80 backdrop-blur-md border border-white/10
+                                           rounded-lg shadow-xl shadow-black/50 py-1 min-w-[150px]"
+                              >
+                                <button
+                                  onClick={() => removeFromPlaylist(track.id)}
+                                  className="w-full text-left px-3 py-1.5 text-xs text-red-400/80 hover:bg-white/[0.06] hover:text-red-300 transition-colors flex items-center gap-2"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <line x1="5" y1="12" x2="19" y2="12" />
+                                  </svg>
+                                  Remove
+                                </button>
+                                <button
+                                  onClick={() => handleCopyLink(track)}
+                                  className="w-full text-left px-3 py-1.5 text-xs text-white/80 hover:bg-white/[0.06] hover:text-white transition-colors flex items-center gap-2"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                                  </svg>
+                                  {copiedTrackId === track.id ? 'Copied!' : 'Copy link'}
+                                </button>
+                                <button
+                                  onClick={() => handleBlockArtist(track)}
+                                  className="w-full text-left px-3 py-1.5 text-xs text-red-400/80 hover:bg-white/[0.06] hover:text-red-300 transition-colors flex items-center gap-2"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                                  </svg>
+                                  Hide artist
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Mobile tab switcher (only when playlist is active) */}
+          {activePlaylist && (
+            <div className="sm:hidden fixed bottom-20 left-1/2 -translate-x-1/2 z-30 flex items-center
+                            bg-black/80 backdrop-blur-md border border-white/10 rounded-full p-0.5 shadow-xl">
+              <button
+                onClick={() => setSplitTab('search')}
+                className={`px-4 py-1.5 text-[10px] tracking-wider uppercase rounded-full transition-all duration-200
+                  ${splitTab === 'search' ? 'bg-purple-500/20 text-purple-200' : 'text-white/50'}`}
+              >
+                search
+              </button>
+              <button
+                onClick={() => setSplitTab('playlist')}
+                className={`px-4 py-1.5 text-[10px] tracking-wider uppercase rounded-full transition-all duration-200
+                  ${splitTab === 'playlist' ? 'bg-purple-500/20 text-purple-200' : 'text-white/50'}`}
+              >
+                playlist{activePlaylist.tracks.length > 0 && ` (${activePlaylist.tracks.length})`}
+              </button>
+            </div>
           )}
         </div>
       </div>

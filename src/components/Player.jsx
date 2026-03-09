@@ -54,6 +54,14 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
     preloadRef.current.load()
   }, [nextStreamUrl])
 
+  // Preload next track's artwork so it appears instantly on skip
+  useEffect(() => {
+    const art = nextTrackData?.artwork?.['480x480'] || nextTrackData?.artwork?.['1000x1000'] || nextTrackData?.artwork?.['150x150']
+    if (!art) return
+    const img = new Image()
+    img.src = art
+  }, [nextTrackData])
+
   const handlePlayPause = useCallback(() => {
     const audio = audioRef.current
     if (!audio || !streamUrl) return

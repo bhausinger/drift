@@ -892,6 +892,54 @@ export function addToDraftPlaylist(track) {
   return updated
 }
 
+// Persisted draft edits for existing playlists (server-backed via Upstash Redis)
+
+export async function fetchPlaylistDraft(userId, playlistId) {
+  try {
+    const res = await fetch(`/api/playlist-draft?userId=${userId}&playlistId=${playlistId}`)
+    if (!res.ok) return null
+    const { draft } = await res.json()
+    return draft ? (typeof draft === 'string' ? JSON.parse(draft) : draft) : null
+  } catch {
+    return null
+  }
+}
+
+export async function savePlaylistDraft(userId, playlistId, tracks) {
+  try {
+    await fetch('/api/playlist-draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, playlistId, tracks }),
+    })
+  } catch {
+    // Silent fail — draft save is best-effort
+  }
+}
+
+export async function clearPlaylistDraft(userId, playlistId) {
+  try {
+    await fetch('/api/playlist-draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, playlistId, action: 'delete' }),
+    })
+  } catch {
+    // Silent fail
+  }
+}
+
+export async function fetchAllPlaylistDraftIds(userId) {
+  try {
+    const res = await fetch(`/api/playlist-draft?userId=${userId}`)
+    if (!res.ok) return []
+    const { playlistIds } = await res.json()
+    return playlistIds || []
+  } catch {
+    return []
+  }
+}
+
 // Fetch a user's playlists from Audius (read-only, no secret needed)
 // Paginates to get all playlists (API returns max 100 per page)
 export async function fetchUserPlaylists(userId) {

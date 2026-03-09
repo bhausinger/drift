@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
         manifest: {
-          name: 'Drift — Focus Music Player',
+          name: 'Drift',
           short_name: 'Drift',
           description: 'Minimal focus music player streaming from Audius',
           start_url: '/',

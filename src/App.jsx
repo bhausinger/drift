@@ -35,8 +35,9 @@ export default function App() {
 
       {/* Vibe — the original Drift player */}
       <div className={activeTab === 'vibe' ? '' : 'hidden'}>
-        <h1 className="hidden sm:block fixed top-8 left-1/2 -translate-x-1/2
+        <h1 className="hidden sm:flex items-center gap-2 fixed top-8 left-1/2 -translate-x-1/2
                        text-white/30 text-sm tracking-[0.3em] uppercase select-none font-light z-10">
+          <img src="/drift-icon.png" alt="" className="w-5 h-5 opacity-50" />
           drift
         </h1>
 
