@@ -76,8 +76,8 @@ export function useAudius(vibe) {
   }, [])
 
   const nextTrack = useCallback(async () => {
-    // Prefetch more tracks when running low
-    if (currentIndex + 5 >= tracks.length) {
+    // Prefetch more tracks when running low (bigger buffer = fewer mid-session fetches)
+    if (currentIndex + 15 >= tracks.length) {
       loadTracks(vibeRef.current)
     }
 

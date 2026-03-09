@@ -1,10 +1,13 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import Background from './components/Background'
 import Player from './components/Player'
+import AuthButton from './components/AuthButton'
 import DJMode from './components/DJMode'
 import BottomTabs from './components/BottomTabs'
 import { AuthProvider } from './contexts/AuthContext'
 import { useArtworkColor } from './hooks/useArtworkColor'
+import { useAudioAnalyser } from './hooks/useAudioAnalyser'
+import { useParallax } from './hooks/useParallax'
 
 export default function App() {
   const audioRef = useRef(null)
@@ -14,6 +17,8 @@ export default function App() {
   const playerStateRef = useRef({ currentTrack: null, isPlaying: false })
 
   const accentColor = useArtworkColor(artworkUrl)
+  const levels = useAudioAnalyser(audioRef)
+  const parallax = useParallax()
 
   // Capture player state when switching to deep dive
   const handleTabChange = useCallback((tab) => {
@@ -25,8 +30,8 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <audio ref={audioRef} preload="auto" />
-      <Background accentColor={accentColor} />
+      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" />
+      <Background accentColor={accentColor} levels={levels} parallax={parallax} />
 
       {/* Vibe — the original Drift player */}
       <div className={activeTab === 'vibe' ? '' : 'hidden'}>
@@ -48,6 +53,8 @@ export default function App() {
           handoffTrackRef={handoffTrackRef}
         />
       </div>
+
+      <AuthButton />
 
       {/* Bottom nav */}
       <BottomTabs activeTab={activeTab} onTabChange={handleTabChange} />

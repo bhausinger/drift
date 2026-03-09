@@ -218,10 +218,10 @@ export default function TrackInfo({ track, onBlockArtist, onQueueArtistTracks })
           <div className="w-48 h-48 sm:w-56 sm:h-56 flex-shrink-0 rounded-xl overflow-hidden shadow-2xl shadow-black/30 relative">
             {artwork ? (
               <img
-                key={artwork}
+                key={track?.id}
                 src={artwork}
                 alt=""
-                className="w-full h-full object-cover opacity-90"
+                className="w-full h-full object-cover animate-artwork-enter"
                 onError={(e) => {
                   const img = e.target
                   if (!img.dataset.fallbackAttempted) {

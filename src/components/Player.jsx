@@ -48,6 +48,7 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
     if (!preloadRef.current) {
       preloadRef.current = new Audio()
       preloadRef.current.preload = 'auto'
+      preloadRef.current.crossOrigin = 'anonymous'
     }
     preloadRef.current.src = nextStreamUrl
     preloadRef.current.load()
@@ -72,17 +73,64 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
     }
   }, [isPlaying, streamUrl])
 
+  const crossfadeRef = useRef(null)
+
+  const doCrossfade = useCallback((durationMs) => {
+    const audio = audioRef.current
+    const preload = preloadRef.current
+    if (!audio || !preload || !preload.src) {
+      // No preloaded track — hard skip
+      if (audio) { audio.pause(); audio.removeAttribute('src') }
+      setIsPlaying(false)
+      wantsToPlay.current = true
+      nextTrack()
+      return
+    }
+
+    // Cancel any existing crossfade
+    if (crossfadeRef.current) cancelAnimationFrame(crossfadeRef.current)
+
+    // Grab the preloaded URL before we clear it
+    const preloadedUrl = preload.src
+
+    const startVol = audio.volume
+    preload.volume = 0
+    preload.play().then(() => {
+      const start = performance.now()
+      const tick = (now) => {
+        const t = Math.min((now - start) / durationMs, 1)
+        audio.volume = startVol * (1 - t)
+        preload.volume = startVol * t
+        if (t < 1) {
+          crossfadeRef.current = requestAnimationFrame(tick)
+        } else {
+          // Swap preloaded URL onto main element so streamUrl effect won't re-fetch
+          preload.pause()
+          preload.removeAttribute('src')
+          audio.src = preloadedUrl
+          audio.volume = startVol
+          audio.load()
+          audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
+          wantsToPlay.current = true
+          nextTrack()
+        }
+      }
+      crossfadeRef.current = requestAnimationFrame(tick)
+    }).catch(() => {
+      if (durationMs <= 1000) {
+        audio.pause()
+        audio.removeAttribute('src')
+        setIsPlaying(false)
+        wantsToPlay.current = true
+        nextTrack()
+      }
+    })
+  }, [nextTrack])
+
   const handleSkip = useCallback(() => {
     userInteracted.current = true
-    const audio = audioRef.current
-    if (audio) {
-      audio.pause()
-      audio.removeAttribute('src')
-    }
-    setIsPlaying(false)
-    wantsToPlay.current = true
-    nextTrack()
-  }, [nextTrack])
+    doCrossfade(300)
+  }, [doCrossfade])
 
   const handlePrev = useCallback(() => {
     userInteracted.current = true
@@ -107,13 +155,58 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
     blockCurrent()
   }, [blockCurrent])
 
+  const paletteLerpRef = useRef(null)
+
   const applyPalette = useCallback((v) => {
     const config = VIBES[v] || VIBES.lofi
-    if (config.palette) {
-      for (const [prop, val] of Object.entries(config.palette)) {
-        document.documentElement.style.setProperty(prop, val)
+    if (!config.palette) return
+
+    // Cancel any in-progress lerp
+    if (paletteLerpRef.current) cancelAnimationFrame(paletteLerpRef.current)
+
+    const hexToRgb = (hex) => {
+      const h = hex.replace('#', '')
+      return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
+    }
+    const rgbToHex = (r, g, b) =>
+      '#' + [r, g, b].map((c) => Math.round(c).toString(16).padStart(2, '0')).join('')
+
+    const style = getComputedStyle(document.documentElement)
+    const entries = Object.entries(config.palette)
+
+    // Get current values
+    const from = entries.map(([prop]) => {
+      const cur = style.getPropertyValue(prop).trim()
+      try { return hexToRgb(cur) } catch { return null }
+    })
+    const to = entries.map(([, val]) => {
+      try { return hexToRgb(val) } catch { return null }
+    })
+
+    const duration = 2000
+    const start = performance.now()
+
+    const tick = (now) => {
+      const t = Math.min((now - start) / duration, 1)
+      // Ease out cubic
+      const ease = 1 - Math.pow(1 - t, 3)
+
+      entries.forEach(([prop, val], i) => {
+        if (!from[i] || !to[i]) {
+          document.documentElement.style.setProperty(prop, val)
+          return
+        }
+        const r = from[i][0] + (to[i][0] - from[i][0]) * ease
+        const g = from[i][1] + (to[i][1] - from[i][1]) * ease
+        const b = from[i][2] + (to[i][2] - from[i][2]) * ease
+        document.documentElement.style.setProperty(prop, rgbToHex(r, g, b))
+      })
+
+      if (t < 1) {
+        paletteLerpRef.current = requestAnimationFrame(tick)
       }
     }
+    paletteLerpRef.current = requestAnimationFrame(tick)
   }, [])
 
   // Apply palette on initial mount
@@ -174,18 +267,36 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
     return () => audio.removeEventListener('canplay', onCanPlay)
   }, [])
 
-  // Auto-advance on track end
+  // Crossfade near track end (start 2.5s before end)
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
-    const onEnded = () => {
-      setIsPlaying(false)
-      wantsToPlay.current = true
-      nextTrack()
+    let started = false
+    const onTimeUpdate = () => {
+      if (!audio.duration || started) return
+      if (audio.duration - audio.currentTime <= 2.5 && audio.duration > 5) {
+        started = true
+        doCrossfade(2500)
+      }
     }
+    const onEnded = () => {
+      // Fallback if crossfade didn't trigger (short tracks, etc.)
+      if (!started) {
+        setIsPlaying(false)
+        wantsToPlay.current = true
+        nextTrack()
+      }
+    }
+    const reset = () => { started = false }
+    audio.addEventListener('timeupdate', onTimeUpdate)
     audio.addEventListener('ended', onEnded)
-    return () => audio.removeEventListener('ended', onEnded)
-  }, [nextTrack])
+    audio.addEventListener('loadstart', reset)
+    return () => {
+      audio.removeEventListener('timeupdate', onTimeUpdate)
+      audio.removeEventListener('ended', onEnded)
+      audio.removeEventListener('loadstart', reset)
+    }
+  }, [nextTrack, doCrossfade])
 
   // Auto-skip on stream error
   useEffect(() => {

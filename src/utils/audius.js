@@ -291,12 +291,13 @@ export const VIBES = {
       'melodic bass', 'briddim', 'deathstep', 'freeform bass',
       'uk bass', 'ukg', 'garage', 'bassline',
     ],
-    maxDuration: 6 * 60,
+    minDuration: 60,
+    maxDuration: 7 * 60,
     bpmMin: 140,
     bpmMax: 140,
     excludePlaylistId: 'l5Q60YO', // @Audius "140" playlist — exclude featured artists
-    genres: ['Dubstep', 'Trap', 'Future Bass', 'Electronic'],
-    apiGenres: ['Dubstep', 'Trap', 'Future Bass', 'Electronic'],
+    genres: ['Dubstep', 'Trap', 'Electronic'],
+    apiGenres: ['Dubstep', 'Trap', 'Electronic'],
     palette: {
       '--c-deep': '#080310',
       '--c-navy': '#10082a',
@@ -567,6 +568,7 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
     if (seen.has(t.id)) return false
     seen.add(t.id)
     return t.duration <= config.maxDuration
+      && (!config.minDuration || t.duration >= config.minDuration)
       && !blocked.has(t.id)
       && !blockedArtists.has(t.user?.handle)
       && !recentlyPlayed.has(t.id)
@@ -640,6 +642,7 @@ export async function fetchRadioTracks({ vibe = 'lofi', limit = 50 } = {}) {
     if (seen.has(t.id)) return false
     seen.add(t.id)
     return t.duration <= config.maxDuration
+      && (!config.minDuration || t.duration >= config.minDuration)
       && !blocked.has(t.id)
       && !blockedArtists.has(t.user?.handle)
       && !recentlyPlayed.has(t.id)

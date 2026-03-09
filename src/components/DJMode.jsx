@@ -23,6 +23,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   const [bpmMax, setBpmMax] = useState('')
   const [selectedKey, setSelectedKey] = useState('')
   const [selectedMood, setSelectedMood] = useState('')
+  const [minDuration, setMinDuration] = useState('')
   const [maxDuration, setMaxDuration] = useState('')
   const [releasedWithin, setReleasedWithin] = useState('')
 
@@ -38,11 +39,18 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   const [isPlaying, setIsPlaying] = useState(() => handoffTrackRef?.current?.isPlaying || false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [volume, setVolume] = useState(() => {
+    try { return parseFloat(localStorage.getItem('drift:volume') ?? '1') } catch { return 1 }
+  })
 
   // Refs to avoid stale closures in audio event handlers
   const nowPlayingRef = useRef(null)
   const resultsRef = useRef([])
   const repeatRef = useRef('off')
+
+  // Drag-and-drop reorder state
+  const [dragIdx, setDragIdx] = useState(null)
+  const [dragOverIdx, setDragOverIdx] = useState(null)
 
   // Repeat mode: 'off' | 'all' | 'one'
   const [repeatMode, setRepeatMode] = useState('off')
@@ -105,11 +113,11 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
 
   // Open an existing playlist — fetch its tracks and show detail view
   const openPlaylist = useCallback(async (pl) => {
-    setActivePlaylist({ id: pl.id, name: pl.playlistName || pl.playlist_name || 'Untitled', artwork: pl.artwork?.['150x150'] || null, tracks: [], isNew: false, description: pl.description || '', isPrivate: pl.is_private ?? pl.isPrivate ?? false })
+    setActivePlaylist({ id: pl.id, name: pl.playlistName || pl.playlist_name || 'Untitled', artwork: pl.artwork?.['150x150'] || null, tracks: [], originalTracks: [], isNew: false, description: pl.description || '', isPrivate: pl.is_private ?? pl.isPrivate ?? false })
     setLoadingPlaylistTracks(true)
     try {
       const tracks = await fetchPlaylistTracks(pl.id)
-      setActivePlaylist((prev) => prev ? { ...prev, tracks } : null)
+      setActivePlaylist((prev) => prev ? { ...prev, tracks, originalTracks: tracks } : null)
     } finally {
       setLoadingPlaylistTracks(false)
     }
@@ -177,6 +185,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   const results = useMemo(() => {
     const minBpm = bpmMin ? Number(bpmMin) : null
     const maxBpm = bpmMax ? Number(bpmMax) : null
+    const minDur = minDuration ? Number(minDuration) * 60 : null
     const maxDur = maxDuration ? Number(maxDuration) * 60 : null
     const blockedArtists = getBlockedArtists()
     // Date cutoff for release date filter
@@ -200,6 +209,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
       if (maxBpm && t.bpm && t.bpm > maxBpm) return false
       if (selectedKey && t.musical_key && t.musical_key !== selectedKey) return false
       if (selectedMood && t.mood && t.mood.toLowerCase() !== selectedMood.toLowerCase()) return false
+      if (minDur && t.duration && t.duration < minDur) return false
       if (maxDur && t.duration > maxDur) return false
       if (dateCutoff) {
         const released = t.release_date ? new Date(t.release_date) : t.created_at ? new Date(t.created_at) : null
@@ -209,7 +219,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
       }
       return true
     })
-  }, [rawResults, bpmMin, bpmMax, selectedKey, selectedMood, maxDuration, releasedWithin, blockVersion, excludedArtists, excludeEnabled])
+  }, [rawResults, bpmMin, bpmMax, selectedKey, selectedMood, minDuration, maxDuration, releasedWithin, blockVersion, excludedArtists, excludeEnabled])
 
   // Keep refs in sync for audio event handlers
   useEffect(() => { nowPlayingRef.current = nowPlaying }, [nowPlaying])
@@ -219,6 +229,9 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   const handlePreview = useCallback((track) => {
     const audio = djAudioRef.current
     if (!audio) return
+
+    // Always ensure volume is correct (crossfade in main player may have zeroed it)
+    audio.volume = volume
 
     if (nowPlaying?.id === track.id) {
       if (isPlaying) {
@@ -235,7 +248,14 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
     audio.load()
     audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
     setNowPlaying(track)
-  }, [nowPlaying, isPlaying])
+  }, [nowPlaying, isPlaying, volume])
+
+  // Keep audio volume in sync
+  useEffect(() => {
+    const audio = djAudioRef.current
+    if (audio) audio.volume = volume
+    localStorage.setItem('drift:volume', String(volume))
+  }, [volume])
 
   // Track audio time updates for now-playing bar
   useEffect(() => {
@@ -343,7 +363,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
         return { ...prev, tracks: [...prev.tracks, track] }
       })
     } else if (targetPlaylistId && targetPlaylistId !== 'draft') {
-      // Adding to a specific existing Audius playlist
+      // Adding to a specific existing Audius playlist — stage locally (draft editing)
       if (activePlaylist?.id === targetPlaylistId) {
         setActivePlaylist((prev) => {
           if (!prev) return prev
@@ -351,35 +371,15 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
           return { ...prev, tracks: [...prev.tracks, track] }
         })
       }
-      if (user) {
-        fetch('/api/playlist-action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'addTrack', userId: user.userId, playlistId: targetPlaylistId, trackId: track.id }),
-        }).catch(() => {
-          if (activePlaylist?.id === targetPlaylistId) {
-            setActivePlaylist((prev) => prev ? { ...prev, tracks: prev.tracks.filter((t) => t.id !== track.id) } : prev)
-          }
-        })
-      }
-      setToast(`Added to playlist`)
+      setToast(`Added to playlist (draft)`)
       setTimeout(() => setToast(null), 1500)
     } else if (activePlaylist && !activePlaylist.isNew) {
-      // Adding to current active existing playlist
+      // Adding to current active existing playlist — stage locally
       setActivePlaylist((prev) => {
         if (!prev) return prev
         if (prev.tracks.some((t) => t.id === track.id)) return prev
         return { ...prev, tracks: [...prev.tracks, track] }
       })
-      if (user) {
-        fetch('/api/playlist-action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'addTrack', userId: user.userId, playlistId: activePlaylist.id, trackId: track.id }),
-        }).catch(() => {
-          setActivePlaylist((prev) => prev ? { ...prev, tracks: prev.tracks.filter((t) => t.id !== track.id) } : prev)
-        })
-      }
     } else {
       // No active playlist — add to draft and auto-activate draft view
       setPlaylist((prev) => {
@@ -409,25 +409,83 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
       setPlaylist((prev) => prev.filter((t) => t.id !== trackId))
       setActivePlaylist((prev) => prev ? { ...prev, tracks: prev.tracks.filter((t) => t.id !== trackId) } : prev)
     } else if (activePlaylist && !activePlaylist.isNew) {
-      // Remove from existing Audius playlist — optimistic + API
-      const removed = activePlaylist.tracks.find((t) => t.id === trackId)
+      // Remove from existing playlist — stage locally (draft editing)
       setActivePlaylist((prev) => prev ? { ...prev, tracks: prev.tracks.filter((t) => t.id !== trackId) } : prev)
-      if (user) {
-        fetch('/api/playlist-action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'removeTrack', userId: user.userId, playlistId: activePlaylist.id, trackId }),
-        }).catch(() => {
-          // Revert on failure
-          if (removed) {
-            setActivePlaylist((prev) => prev ? { ...prev, tracks: [...prev.tracks, removed] } : prev)
-          }
-        })
-      }
     } else {
       setPlaylist((prev) => prev.filter((t) => t.id !== trackId))
     }
-  }, [activePlaylist, user])
+  }, [activePlaylist])
+
+  // Drag-and-drop reorder — commit the move on drop
+  const handleDragDrop = useCallback((fromIdx, toIdx) => {
+    if (fromIdx === toIdx) return
+    const reorder = (tracks) => {
+      const arr = [...tracks]
+      const [moved] = arr.splice(fromIdx, 1)
+      arr.splice(toIdx, 0, moved)
+      return arr
+    }
+    setActivePlaylist((prev) => prev ? { ...prev, tracks: reorder(prev.tracks) } : prev)
+    if (activePlaylist?.isNew) {
+      setPlaylist((prev) => reorder(prev))
+    }
+  }, [activePlaylist])
+
+  // Draft change detection for existing playlists
+  const hasDraftChanges = useMemo(() => {
+    if (!activePlaylist || activePlaylist.isNew || !activePlaylist.originalTracks) return false
+    const currentIds = activePlaylist.tracks.map((t) => t.id).join(',')
+    const originalIds = activePlaylist.originalTracks.map((t) => t.id).join(',')
+    return currentIds !== originalIds
+  }, [activePlaylist])
+
+  // Revert draft changes
+  const handleRevertEdits = useCallback(() => {
+    if (!activePlaylist || activePlaylist.isNew || !activePlaylist.originalTracks) return
+    setActivePlaylist((prev) => prev ? { ...prev, tracks: [...prev.originalTracks] } : prev)
+    setToast('Changes reverted')
+    setTimeout(() => setToast(null), 1500)
+  }, [activePlaylist])
+
+  // Publish draft edits to Audius
+  const [publishingEdits, setPublishingEdits] = useState(false)
+  const handlePublishEdits = useCallback(async (mode = 'replace') => {
+    if (!user || !activePlaylist || activePlaylist.isNew) return
+    setPublishingEdits(true)
+    setSaveResult(null)
+    try {
+      const currentIds = activePlaylist.tracks.map((t) => t.id)
+      const originalIds = activePlaylist.originalTracks.map((t) => t.id)
+
+      const res = await fetch('/api/playlist-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'syncPlaylist',
+          userId: user.userId,
+          playlistId: activePlaylist.id,
+          trackIds: currentIds,
+          originalTrackIds: originalIds,
+          mode,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed to publish')
+      }
+      // Update originalTracks to match current state
+      setActivePlaylist((prev) => prev ? { ...prev, originalTracks: [...prev.tracks] } : prev)
+      setSaveResult('Playlist updated on Audius!')
+      setToast('Published to Audius')
+      setTimeout(() => { setToast(null); setSaveResult(null) }, 3000)
+    } catch (err) {
+      setSaveResult(`Error: ${err.message}`)
+      setToast(`Error: ${err.message}`)
+      setTimeout(() => setToast(null), 3000)
+    } finally {
+      setPublishingEdits(false)
+    }
+  }, [user, activePlaylist])
 
   const handleLike = useCallback(async (track) => {
     if (!user) { login(); return }
@@ -496,37 +554,42 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
     })
   }, [activePlaylist, playlist])
 
-  // Paste URLs to add tracks — accepts newline/comma separated Audius URLs
+  // Paste URLs panel — textarea for pasting Audius URLs line by line
   const [pasteLoading, setPasteLoading] = useState(false)
-  const handlePasteUrls = useCallback(async () => {
-    let text
-    try {
-      text = await navigator.clipboard.readText()
-    } catch {
-      setToast('Could not read clipboard')
-      setTimeout(() => setToast(null), 2000)
-      return
-    }
-    // Extract URLs (audius.co links)
-    const urls = text.split(/[\n,\s]+/).filter((s) => s.includes('audius.co')).map((s) => s.trim()).filter(Boolean)
+  const [showPastePanel, setShowPastePanel] = useState(false)
+  const [pasteText, setPasteText] = useState('')
+  const handleSubmitPasteUrls = useCallback(async (clearExisting) => {
+    const urls = pasteText.split(/[\n,\s]+/).filter((s) => s.includes('audius.co')).map((s) => s.trim()).filter(Boolean)
     if (urls.length === 0) {
-      setToast('No Audius URLs found in clipboard')
+      setToast('No Audius URLs found')
       setTimeout(() => setToast(null), 2000)
       return
     }
     setPasteLoading(true)
-    let added = 0
-    for (const url of urls) {
-      const track = await resolveTrackUrl(url)
-      if (track) {
-        addToPlaylist(track)
-        added++
+    // Clear existing tracks first if requested
+    if (clearExisting) {
+      if (activePlaylist?.isNew) {
+        setPlaylist([])
+        setActivePlaylist((prev) => prev ? { ...prev, tracks: [] } : prev)
+      } else if (activePlaylist) {
+        setActivePlaylist((prev) => prev ? { ...prev, tracks: [] } : prev)
       }
     }
+    const resolved = []
+    for (const url of urls) {
+      const track = await resolveTrackUrl(url)
+      if (track) resolved.push(track)
+    }
+    // Add all resolved tracks
+    for (const track of resolved) {
+      addToPlaylist(track)
+    }
     setPasteLoading(false)
-    setToast(added > 0 ? `Added ${added} track${added !== 1 ? 's' : ''}` : 'No tracks found')
+    setPasteText('')
+    setShowPastePanel(false)
+    setToast(resolved.length > 0 ? `Added ${resolved.length} track${resolved.length !== 1 ? 's' : ''}${clearExisting ? ' (replaced)' : ''}` : 'No tracks found')
     setTimeout(() => setToast(null), 2000)
-  }, [addToPlaylist])
+  }, [pasteText, addToPlaylist, activePlaylist])
 
   const activeTracks = activePlaylist ? activePlaylist.tracks : playlist
   const totalDuration = activeTracks.reduce((sum, t) => sum + (t.duration || 0), 0)
@@ -834,14 +897,14 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0
 
   return (
-    <div className="fixed inset-0 z-30 flex flex-col overflow-hidden pb-14">
+    <div className="fixed inset-0 z-30 flex flex-col overflow-hidden pb-14 bg-[#050510]">
       {/* Header */}
       <div className="flex items-center justify-between px-6 sm:px-8 pt-5 pb-3 flex-shrink-0">
         <div>
           <h2 className="text-white text-xs tracking-[0.3em] uppercase font-light">
             deep dive
           </h2>
-          <p className="text-white/60 text-[10px] mt-1 font-light">
+          <p className="hidden sm:block text-white/60 text-[10px] mt-1 font-light">
             Search artists or tracks, filter by BPM, mood, genre, and build a playlist
           </p>
         </div>
@@ -860,18 +923,21 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
               </svg>
-              {handleList.length > 0 ? handleList.length : 'handles'}
+              <span className="hidden sm:inline">{handleList.length > 0 ? handleList.length : 'handles'}</span>
+              <span className="sm:hidden">{handleList.length > 0 ? handleList.length : ''}</span>
             </button>
           )}
           {isTeam && (
             <button
               onClick={() => {
-                setSelectedGenres(['Dubstep', 'Trap', 'Future Bass', 'Electronic'])
+                setSelectedGenres(['Dubstep', 'Trap', 'Electronic'])
                 setBpmMin('140')
                 setBpmMax('140')
                 setSearchQuery('')
                 setSelectedMood('')
                 setSelectedKey('')
+                setMinDuration('1')
+                setMaxDuration('7')
                 setReleasedWithin('14d')
                 setActivePlaylist(null)
                 // Trigger search after state updates
@@ -895,7 +961,8 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                   : 'bg-white/[0.06] border-white/15 text-white/80 hover:border-white/30 hover:text-white'
                 }`}
             >
-              {excludeEnabled ? 'hiding playlist artists' : 'showing all artists'}
+              <span className="hidden sm:inline">{excludeEnabled ? 'hiding playlist artists' : 'showing all artists'}</span>
+              <span className="sm:hidden">{excludeEnabled ? 'hiding' : 'showing'}</span>
             </button>
           )}
           <button
@@ -918,7 +985,8 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
               <line x1="3" y1="12" x2="3.01" y2="12" />
               <line x1="3" y1="18" x2="3.01" y2="18" />
             </svg>
-            {!user ? 'log in for playlists' : 'playlists'}
+            <span className="hidden sm:inline">{!user ? 'log in for playlists' : 'playlists'}</span>
+            <span className="sm:hidden">{!user ? 'log in' : ''}</span>
           </button>
           <button
             onClick={onClose}
@@ -984,14 +1052,15 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
           </div>
         </div>
 
-        {/* Genre pills — centered */}
+        {/* Genre pills — horizontal scroll on mobile, wrap on desktop */}
         <div className="max-w-3xl mx-auto w-full">
-          <div className="flex flex-wrap justify-center gap-1.5">
+          <div className="flex gap-1.5 overflow-x-auto pb-1 sm:flex-wrap sm:justify-center sm:overflow-visible sm:pb-0
+                          [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {DJ_GENRES.map((genre) => (
               <button
                 key={genre}
                 onClick={() => toggleGenre(genre)}
-                className={`text-[10px] tracking-wider px-3 py-1.5 rounded-full transition-all duration-300 border
+                className={`text-[10px] tracking-wider px-3 py-1.5 rounded-full transition-all duration-300 border flex-shrink-0
                   ${selectedGenres.includes(genre)
                     ? 'bg-purple-500/25 border-purple-500/40 text-purple-200'
                     : 'bg-transparent border-white/15 text-white/60 hover:border-white/30 hover:text-white/85'
@@ -1059,16 +1128,28 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
           </div>
 
           <div>
-            <label className="text-white/80 text-[10px] tracking-wider uppercase block mb-1">Max Duration</label>
-            <input
-              type="number"
-              placeholder="any"
-              value={maxDuration}
-              onChange={(e) => setMaxDuration(e.target.value)}
-              className="w-16 bg-white/[0.06] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white
-                         placeholder:text-white/40 focus:outline-none focus:border-purple-500/40 font-mono
-                         transition-colors duration-300"
-            />
+            <label className="text-white/80 text-[10px] tracking-wider uppercase block mb-1">Duration</label>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                placeholder="min"
+                value={minDuration}
+                onChange={(e) => setMinDuration(e.target.value)}
+                className="w-14 bg-white/[0.06] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white
+                           placeholder:text-white/40 focus:outline-none focus:border-purple-500/40 font-mono
+                           transition-colors duration-300"
+              />
+              <span className="text-white/30 text-xs">–</span>
+              <input
+                type="number"
+                placeholder="max"
+                value={maxDuration}
+                onChange={(e) => setMaxDuration(e.target.value)}
+                className="w-14 bg-white/[0.06] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white
+                           placeholder:text-white/40 focus:outline-none focus:border-purple-500/40 font-mono
+                           transition-colors duration-300"
+              />
+            </div>
           </div>
 
           <div>
@@ -1115,6 +1196,15 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
           <div className="absolute left-0 top-0 bottom-0 w-full sm:w-72 z-20 border-r border-white/[0.06] bg-black/80 sm:bg-black/60 backdrop-blur-xl flex flex-col overflow-hidden shadow-xl shadow-black/30">
             <div className="px-4 pt-4 pb-2 flex items-center justify-between">
               <h3 className="text-white/90 text-[11px] tracking-wider uppercase">Playlists</h3>
+              <button
+                onClick={() => setShowPlaylist(false)}
+                className="sm:hidden text-white/50 hover:text-white/80 transition-colors p-1.5 -m-1"
+                aria-label="Close playlists"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
             </div>
 
             {/* New playlist button */}
@@ -1249,9 +1339,10 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                   <p className="text-white/40 text-[10px]">
                     {activePlaylist.tracks.length} track{activePlaylist.tracks.length !== 1 ? 's' : ''}
                     {activePlaylist.isNew && ' · draft'}
+                    {hasDraftChanges && ' · unsaved changes'}
                   </p>
                 </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+                <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end max-w-[50%] sm:max-w-none">
                   {activePlaylist.tracks.length > 0 && (
                     <button
                       onClick={handlePlaylistRadio}
@@ -1292,13 +1383,13 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                     </button>
                   )}
                   <button
-                    onClick={handlePasteUrls}
-                    disabled={pasteLoading}
-                    className="px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80 text-[10px]
-                               tracking-wider rounded-lg transition-all duration-300 disabled:opacity-40 uppercase"
-                    title="Paste Audius URLs from clipboard"
+                    onClick={() => setShowPastePanel((v) => !v)}
+                    className={`px-2.5 py-1.5 text-[10px] tracking-wider rounded-lg transition-all duration-300 uppercase
+                      ${showPastePanel
+                        ? 'bg-purple-500/20 border border-purple-500/30 text-purple-300'
+                        : 'bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80'}`}
                   >
-                    {pasteLoading ? '...' : 'paste urls'}
+                    paste urls
                   </button>
                   {activePlaylist.isNew && (
                     <button
@@ -1311,12 +1402,89 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                       {saving ? 'saving...' : 'save to audius'}
                     </button>
                   )}
+                  {hasDraftChanges && (
+                    <>
+                      <button
+                        onClick={handleRevertEdits}
+                        className="px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white/60 hover:text-white/80 text-[10px]
+                                   tracking-wider rounded-lg transition-all duration-300 uppercase"
+                      >
+                        revert
+                      </button>
+                      <button
+                        onClick={() => handlePublishEdits('append')}
+                        disabled={publishingEdits}
+                        className="px-2.5 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px]
+                                   tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30 uppercase"
+                        title="Only add new tracks, keep existing"
+                      >
+                        {publishingEdits ? '...' : 'add new'}
+                      </button>
+                      <button
+                        onClick={() => handlePublishEdits('replace')}
+                        disabled={publishingEdits}
+                        className="px-3 py-1.5 bg-purple-500/25 hover:bg-purple-500/35 text-purple-200 text-[10px]
+                                   tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30 uppercase"
+                        title="Replace playlist with current track list"
+                      >
+                        {publishingEdits ? 'publishing...' : 'publish'}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
               {saveResult && (
                 <p className={`text-[10px] px-4 pb-2 ${saveResult.startsWith('Error') ? 'text-red-400/80' : 'text-emerald-400/80'}`}>
                   {saveResult}
                 </p>
+              )}
+
+              {/* Paste URLs panel */}
+              {showPastePanel && (
+                <div className="mb-3 bg-white/[0.04] border border-white/10 rounded-lg p-3 space-y-2">
+                  <textarea
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                    placeholder="Paste Audius URLs here, one per line..."
+                    rows={4}
+                    className="w-full bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-xs text-white
+                               placeholder:text-white/40 focus:outline-none focus:border-purple-500/40 transition-colors duration-300
+                               resize-none font-mono"
+                  />
+                  <div className="flex items-center justify-between">
+                    <p className="text-white/30 text-[9px]">
+                      {pasteText.split(/[\n,\s]+/).filter((s) => s.includes('audius.co')).length} URL{pasteText.split(/[\n,\s]+/).filter((s) => s.includes('audius.co')).length !== 1 ? 's' : ''} detected
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { setShowPastePanel(false); setPasteText('') }}
+                        className="px-2.5 py-1 text-[10px] text-white/50 hover:text-white/80 transition-colors"
+                      >
+                        cancel
+                      </button>
+                      {activePlaylist.tracks.length > 0 && (
+                        <button
+                          onClick={() => handleSubmitPasteUrls(true)}
+                          disabled={pasteLoading || !pasteText.trim()}
+                          className="px-3 py-1 bg-red-500/15 hover:bg-red-500/25 text-red-300/90 text-[10px]
+                                     tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30 uppercase"
+                          title="Remove current tracks and replace with pasted URLs"
+                        >
+                          {pasteLoading ? '...' : 'replace all'}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleSubmitPasteUrls(false)}
+                        disabled={pasteLoading || !pasteText.trim()}
+                        className="px-3 py-1 bg-purple-500/25 hover:bg-purple-500/35 text-purple-200 text-[10px]
+                                   tracking-wider rounded-lg transition-all duration-300 disabled:opacity-30 uppercase"
+                        title="Keep current tracks and add these"
+                      >
+                        {pasteLoading ? 'adding...' : 'keep & add'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
 
               {loadingPlaylistTracks ? (
@@ -1334,15 +1502,29 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
                 </div>
               ) : (
                 <div className="space-y-0.5">
-                  {activePlaylist.tracks.map((track) => {
+                  {activePlaylist.tracks.map((track, trackIdx) => {
                     const isActive = nowPlaying?.id === track.id
                     const art = artwork(track)
                     return (
                       <div
                         key={track.id}
+                        draggable
+                        onDragStart={(e) => { setDragIdx(trackIdx); e.dataTransfer.effectAllowed = 'move' }}
+                        onDragOver={(e) => { e.preventDefault(); setDragOverIdx(trackIdx) }}
+                        onDragEnd={() => { if (dragIdx !== null && dragOverIdx !== null) handleDragDrop(dragIdx, dragOverIdx); setDragIdx(null); setDragOverIdx(null) }}
                         className={`flex items-center gap-3 py-2.5 sm:py-2 px-3 -mx-3 rounded-lg transition-all duration-200
+                          ${dragOverIdx === trackIdx && dragIdx !== null && dragIdx !== trackIdx ? 'border-t-2 border-purple-400/50' : 'border-t-2 border-transparent'}
+                          ${dragIdx === trackIdx ? 'opacity-40' : ''}
                           ${isActive ? 'bg-purple-500/10' : 'hover:bg-white/[0.04]'}`}
                       >
+                        {/* Drag handle */}
+                        <div className="flex-shrink-0 cursor-grab active:cursor-grabbing text-white/20 hover:text-white/50 transition-colors">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="9" cy="5" r="1.5" /><circle cx="15" cy="5" r="1.5" />
+                            <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+                            <circle cx="9" cy="19" r="1.5" /><circle cx="15" cy="19" r="1.5" />
+                          </svg>
+                        </div>
                         <button
                           onClick={() => handlePreview(track)}
                           className="relative flex-shrink-0 w-10 h-10 sm:w-9 sm:h-9 rounded-md overflow-hidden bg-white/[0.06] group"
@@ -1831,12 +2013,40 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
               </button>
             </div>
 
-            {/* Right — time, like, repost, menu */}
-            <div className="hidden sm:flex items-center justify-end gap-1 w-1/3">
+            {/* Right — time, volume, like, repost, menu */}
+            <div className="flex items-center justify-end gap-1 sm:w-1/3">
               <div className="hidden sm:flex items-center gap-1.5 mr-2 text-[10px] font-mono text-white/50">
                 <span>{formatDuration(currentTime)}</span>
                 <span>/</span>
                 <span>{formatDuration(duration || nowPlaying.duration)}</span>
+              </div>
+              {/* Volume */}
+              <div className="flex items-center gap-1 mr-1">
+                <button
+                  onClick={() => setVolume((v) => v > 0 ? 0 : 1)}
+                  className="p-1 text-white/40 hover:text-white/70 transition-colors"
+                  aria-label={volume === 0 ? 'Unmute' : 'Mute'}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    {volume === 0 ? (
+                      <><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" /></>
+                    ) : volume < 0.5 ? (
+                      <><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /></>
+                    ) : (
+                      <><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></>
+                    )}
+                  </svg>
+                </button>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={volume}
+                  onChange={(e) => setVolume(parseFloat(e.target.value))}
+                  className="w-16 h-1 accent-purple-400 cursor-pointer opacity-60 hover:opacity-100 transition-opacity"
+                  aria-label="Volume"
+                />
               </div>
               <button
                 onClick={() => handleLike(nowPlaying)}
@@ -1870,7 +2080,7 @@ export default function DJMode({ onClose, audioRef, handoffTrackRef }) {
               </button>
 
               {/* Three-dot menu */}
-              <div className="relative flex-shrink-0">
+              <div className="relative flex-shrink-0 hidden sm:block">
               <button
                 onClick={() => setShowNpMenu((v) => !v)}
                 className="p-1.5 text-white/40 hover:text-white/70 transition-colors rounded"

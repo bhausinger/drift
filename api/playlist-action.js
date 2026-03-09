@@ -46,6 +46,33 @@ export default async function handler(req, res) {
         await s.playlists.removeTrackFromPlaylist({ userId, playlistId, trackId })
         return res.status(200).json({ ok: true })
       }
+      case 'syncPlaylist': {
+        // Sync playlist to match desired track list
+        // mode: 'replace' (remove old + add new) or 'append' (only add new)
+        if (!trackIds) return res.status(400).json({ error: 'Missing trackIds' })
+        const { originalTrackIds, mode } = req.body
+        if (!originalTrackIds) return res.status(400).json({ error: 'Missing originalTrackIds' })
+
+        if (mode === 'append') {
+          // Only add tracks that are new
+          const toAdd = trackIds.filter((id) => !originalTrackIds.includes(id))
+          for (const id of toAdd) {
+            await s.playlists.addTrackToPlaylist({ userId, playlistId, trackId: id })
+          }
+          return res.status(200).json({ ok: true, added: toAdd.length, removed: 0 })
+        }
+
+        // Default: replace mode — remove tracks not in new list, add new ones
+        const toRemove = originalTrackIds.filter((id) => !trackIds.includes(id))
+        const toAdd = trackIds.filter((id) => !originalTrackIds.includes(id))
+        for (const id of toRemove) {
+          await s.playlists.removeTrackFromPlaylist({ userId, playlistId, trackId: id })
+        }
+        for (const id of toAdd) {
+          await s.playlists.addTrackToPlaylist({ userId, playlistId, trackId: id })
+        }
+        return res.status(200).json({ ok: true, added: toAdd.length, removed: toRemove.length })
+      }
       case 'updatePlaylist': {
         const { metadata } = req.body
         if (!metadata) return res.status(400).json({ error: 'Missing metadata' })

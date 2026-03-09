@@ -1,4 +1,7 @@
-export default function Background({ accentColor = null }) {
+export default function Background({ accentColor = null, levels = {}, parallax = {} }) {
+  const { bass = 0, mid = 0, high = 0, pulse = 0 } = levels
+  const { x: px = 0, y: py = 0 } = parallax
+
   return (
     <div className="fixed inset-0 -z-10 overflow-hidden"
          style={{ backgroundColor: 'var(--c-deep)', transition: 'background-color 2s ease' }}>
@@ -13,6 +16,7 @@ export default function Background({ accentColor = null }) {
              opacity: 0.5,
              filter: 'blur(80px)',
              transition: 'background 2s ease',
+             transform: `translate(${px * 12}px, ${py * 12}px) scale(${1 + bass * 0.08})`,
            }} />
 
       {/* Secondary ambient field — counter-drift */}
@@ -22,22 +26,23 @@ export default function Background({ accentColor = null }) {
              bottom: '-10%', right: '-10%',
              borderRadius: '50%',
              background: `radial-gradient(circle, var(--c-purple) 0%, transparent 70%)`,
-             opacity: 0.4,
+             opacity: 0.4 + mid * 0.15,
              filter: 'blur(80px)',
              transition: 'background 2s ease',
+             transform: `translate(${px * -8}px, ${py * -8}px)`,
            }} />
 
-      {/* Center glow — reacts to artwork accent */}
+      {/* Center glow — reacts to artwork accent + beat pulse */}
       <div className="absolute will-change-transform animate-breathe"
            style={{
              width: '40vmax', height: '40vmax',
              top: '50%', left: '50%',
-             transform: 'translate(-50%, -50%)',
              borderRadius: '50%',
              background: `radial-gradient(circle, ${accentColor || 'var(--c-violet)'} 0%, transparent 70%)`,
-             opacity: 0.2,
+             opacity: 0.2 + pulse * 0.12,
              filter: 'blur(60px)',
              transition: 'background 3s ease',
+             transform: `translate(calc(-50% + ${px * 4}px), calc(-50% + ${py * 4}px)) scale(${1 + pulse * 0.06})`,
            }} />
 
       {/* Accent wisp — slow orbit */}
@@ -47,9 +52,10 @@ export default function Background({ accentColor = null }) {
              top: '10%', right: '5%',
              borderRadius: '50%',
              background: `radial-gradient(circle, var(--c-teal) 0%, transparent 70%)`,
-             opacity: 0.2,
+             opacity: 0.2 + high * 0.15,
              filter: 'blur(60px)',
              transition: 'background 2s ease',
+             transform: `translate(${px * -6}px, ${py * -6}px)`,
            }} />
 
       {/* Subtle noise texture */}
