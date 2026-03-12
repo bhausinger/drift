@@ -86,16 +86,8 @@ export default defineConfig(({ mode }) => {
                 description: description || '',
                 isPrivate: isPrivate !== false,
               }
-              const result = await s.playlists.createPlaylist({
-                userId,
-                metadata,
-                coverArtFile: artworkUrl || undefined,
-              })
+              const result = await s.playlists.createPlaylist({ userId, metadata, trackIds: trackIds || [] })
               const playlistId = result.playlistId || result
-              // Add tracks one by one after creation
-              for (const trackId of trackIds) {
-                await s.playlists.addTrackToPlaylist({ userId, playlistId, trackId })
-              }
               res.setHeader('Content-Type', 'application/json')
               res.end(JSON.stringify({ playlistId }))
             } catch (err) {
@@ -113,7 +105,7 @@ export default defineConfig(({ mode }) => {
 
             let body = ''
             for await (const chunk of req) body += chunk
-            const { action, userId, playlistId, trackId, trackIds } = JSON.parse(body)
+            const { action, userId, playlistId, trackId, trackIds, originalTrackIds, mode, metadata } = JSON.parse(body)
 
             if (!action || !userId || !playlistId) {
               res.statusCode = 400
@@ -148,6 +140,35 @@ export default defineConfig(({ mode }) => {
                 case 'removeTrack': {
                   if (!trackId) { res.statusCode = 400; res.end(JSON.stringify({ error: 'Missing trackId' })); return }
                   await s.playlists.removeTrackFromPlaylist({ userId, playlistId, trackId })
+                  break
+                }
+                case 'syncPlaylist': {
+                  if (!trackIds) { res.statusCode = 400; res.end(JSON.stringify({ error: 'Missing trackIds' })); return }
+                  if (!originalTrackIds) { res.statusCode = 400; res.end(JSON.stringify({ error: 'Missing originalTrackIds' })); return }
+                  if (mode === 'append') {
+                    const toAdd = trackIds.filter((id) => !originalTrackIds.includes(id))
+                    for (const id of toAdd) {
+                      await s.playlists.addTrackToPlaylist({ userId, playlistId, trackId: id })
+                    }
+                    res.setHeader('Content-Type', 'application/json')
+                    res.end(JSON.stringify({ ok: true, added: toAdd.length, removed: 0 }))
+                    return
+                  }
+                  const toRemove = originalTrackIds.filter((id) => !trackIds.includes(id))
+                  const toAdd = trackIds.filter((id) => !originalTrackIds.includes(id))
+                  for (const id of toRemove) {
+                    await s.playlists.removeTrackFromPlaylist({ userId, playlistId, trackId: id })
+                  }
+                  for (const id of toAdd) {
+                    await s.playlists.addTrackToPlaylist({ userId, playlistId, trackId: id })
+                  }
+                  res.setHeader('Content-Type', 'application/json')
+                  res.end(JSON.stringify({ ok: true, added: toAdd.length, removed: toRemove.length }))
+                  return
+                }
+                case 'updatePlaylist': {
+                  if (!metadata) { res.statusCode = 400; res.end(JSON.stringify({ error: 'Missing metadata' })); return }
+                  await s.playlists.updatePlaylist({ userId, playlistId, metadata })
                   break
                 }
                 default:

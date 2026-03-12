@@ -9,12 +9,14 @@ import VibeSelector from './VibeSelector'
 import ProgressBar from './ProgressBar'
 import QueuePanel from './QueuePanel'
 
-export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
+export default function Player({ audioRef, playerStateRef, onArtworkChange, isActive }) {
   const preloadRef = useRef(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [vibe, setVibe] = useState('lofi')
   const wantsToPlay = useRef(false)
   const userInteracted = useRef(false)
+  const isActiveRef = useRef(isActive)
+  isActiveRef.current = isActive
 
   const [showQueue, setShowQueue] = useState(false)
 
@@ -83,75 +85,53 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
 
   const crossfadeRef = useRef(null)
   const skipStreamEffect = useRef(false)
+  const fadeInNextRef = useRef(false)
+  // Suppress auto-skip (error/stall handlers) briefly after manual prev
+  const suppressAutoSkip = useRef(false)
 
   const doCrossfade = useCallback((durationMs) => {
     const audio = audioRef.current
-    const preload = preloadRef.current
-    if (!audio || !preload || !preload.src) {
-      // No preloaded track — hard skip
-      if (audio) { audio.pause(); audio.removeAttribute('src') }
-      setIsPlaying(false)
-      wantsToPlay.current = true
-      nextTrack()
-      return
-    }
+    if (!audio) { nextTrack(); return }
 
     // Cancel any existing crossfade
     if (crossfadeRef.current) clearTimeout(crossfadeRef.current)
 
-    // Grab the preloaded URL before we clear it
-    const preloadedUrl = preload.src
-
+    // Simple approach: fade out current track, then advance
+    // The new track will fade in via the streamUrl effect
     const startVol = audio.volume
-    preload.volume = 0
-    preload.play().then(() => {
-      const start = Date.now()
-      const STEP = 50 // ms between volume steps — works in background tabs
-      const tick = () => {
-        const t = Math.min((Date.now() - start) / durationMs, 1)
-        audio.volume = startVol * (1 - t)
-        preload.volume = startVol * t
-        if (t < 1) {
-          crossfadeRef.current = setTimeout(tick, STEP)
-        } else {
-          // Transfer playback from preload to main audio, preserving position
-          const resumeTime = preload.currentTime
-          preload.pause()
-          preload.removeAttribute('src')
-          audio.src = preloadedUrl
-          audio.volume = startVol
-          audio.load()
-          // Seek to where the preload was playing so it doesn't restart
-          const onLoaded = () => {
-            audio.currentTime = resumeTime
-            audio.removeEventListener('loadeddata', onLoaded)
-          }
-          audio.addEventListener('loadeddata', onLoaded)
-          audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
-          wantsToPlay.current = true
-          skipStreamEffect.current = true
-          nextTrack()
-        }
-      }
-      crossfadeRef.current = setTimeout(tick, STEP)
-    }).catch(() => {
-      if (durationMs <= 1000) {
+    const fadeOutDur = Math.min(durationMs, 1500)
+    const start = Date.now()
+    const STEP = 50
+
+    const tick = () => {
+      const t = Math.min((Date.now() - start) / fadeOutDur, 1)
+      audio.volume = startVol * (1 - t)
+      if (t < 1) {
+        crossfadeRef.current = setTimeout(tick, STEP)
+      } else {
+        // Fade out complete — advance to next track
         audio.pause()
         audio.removeAttribute('src')
+        audio.volume = startVol
         setIsPlaying(false)
         wantsToPlay.current = true
+        fadeInNextRef.current = true
         nextTrack()
       }
-    })
+    }
+    crossfadeRef.current = setTimeout(tick, STEP)
   }, [nextTrack])
 
   const handleSkip = useCallback(() => {
     userInteracted.current = true
-    doCrossfade(300)
+    doCrossfade(400)
   }, [doCrossfade])
 
   const handlePrev = useCallback(() => {
     userInteracted.current = true
+    // Suppress error/stall auto-skip so prev doesn't bounce forward
+    suppressAutoSkip.current = true
+    setTimeout(() => { suppressAutoSkip.current = false }, 3000)
     const audio = audioRef.current
     if (audio) {
       audio.pause()
@@ -256,10 +236,11 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
     }
   }, [])
 
-  // When streamUrl changes, load and play
+  // When streamUrl changes, load and play (with optional fade-in)
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !streamUrl) return
+    if (!isActiveRef.current) return // Deep Dive controls the audio
     // Skip if crossfade already loaded this track onto the audio element
     if (skipStreamEffect.current) { skipStreamEffect.current = false; return }
     if (audio.src === streamUrl) return
@@ -267,10 +248,33 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
     // On first mount after Deep Dive, don't override audio that's already playing
     if (!audio.paused && audio.src && didInitialSync.current && !userInteracted.current) return
 
+    const shouldFadeIn = fadeInNextRef.current
+    fadeInNextRef.current = false
+    const targetVol = audio.volume
+
     audio.src = streamUrl
     audio.load()
+
+    if (shouldFadeIn) {
+      audio.volume = 0
+    }
+
     if (wantsToPlay.current) {
-      audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
+      audio.play().then(() => {
+        setIsPlaying(true)
+        if (shouldFadeIn) {
+          // Fade in over 1.2 seconds
+          const start = Date.now()
+          const dur = 1200
+          const fadeStep = () => {
+            const t = Math.min((Date.now() - start) / dur, 1)
+            // Ease-in curve for natural volume ramp
+            audio.volume = targetVol * (t * t)
+            if (t < 1) setTimeout(fadeStep, 50)
+          }
+          fadeStep()
+        }
+      }).catch(() => setIsPlaying(false))
     }
   }, [streamUrl])
 
@@ -279,6 +283,7 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
     const audio = audioRef.current
     if (!audio) return
     const onCanPlay = () => {
+      if (!isActiveRef.current) return
       if (wantsToPlay.current && audio.paused) {
         audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
       }
@@ -293,6 +298,7 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
     if (!audio) return
     let started = false
     const onTimeUpdate = () => {
+      if (!isActiveRef.current) return // Deep Dive controls the audio
       if (!audio.duration || started) return
       if (audio.duration - audio.currentTime <= 2.5 && audio.duration > 5) {
         started = true
@@ -300,12 +306,11 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
       }
     }
     const onEnded = () => {
-      // Fallback if crossfade didn't trigger (short tracks, etc.)
-      if (!started) {
-        setIsPlaying(false)
-        wantsToPlay.current = true
-        nextTrack()
-      }
+      if (!isActiveRef.current) return // Deep Dive controls the audio
+      // Always advance when track ends — even if crossfade was attempted but failed
+      setIsPlaying(false)
+      wantsToPlay.current = true
+      nextTrack()
     }
     const reset = () => { started = false }
     audio.addEventListener('timeupdate', onTimeUpdate)
@@ -318,32 +323,59 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
     }
   }, [nextTrack, doCrossfade])
 
-  // Auto-skip on stream error
+  // Auto-skip on stream error (respects suppressAutoSkip from prev)
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
-    const onError = () => { if (wantsToPlay.current) nextTrack() }
+    let retryCount = 0
+    const onError = () => {
+      if (!isActiveRef.current) return
+      if (suppressAutoSkip.current) return
+      if (!wantsToPlay.current) return
+      // Retry once by reloading the same src before skipping
+      if (retryCount < 1 && audio.src) {
+        retryCount++
+        audio.load()
+        audio.play().catch(() => nextTrack())
+      } else {
+        retryCount = 0
+        nextTrack()
+      }
+    }
+    const resetRetry = () => { retryCount = 0 }
     audio.addEventListener('error', onError)
-    return () => audio.removeEventListener('error', onError)
+    audio.addEventListener('loadstart', resetRetry)
+    return () => {
+      audio.removeEventListener('error', onError)
+      audio.removeEventListener('loadstart', resetRetry)
+    }
   }, [nextTrack])
 
-  // Stall recovery
+  // Stall recovery — also handles audio stuck without firing 'waiting'
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
     let stallTimer = null
     const onWaiting = () => {
+      clearTimeout(stallTimer)
       stallTimer = setTimeout(() => {
-        if (wantsToPlay.current && audio.paused) nextTrack()
+        if (!isActiveRef.current) return
+        if (suppressAutoSkip.current) return
+        if (wantsToPlay.current) {
+          // Try resuming first before skipping
+          audio.play().then(() => setIsPlaying(true)).catch(() => nextTrack())
+        }
       }, 5000)
     }
     const onPlaying = () => clearTimeout(stallTimer)
     audio.addEventListener('waiting', onWaiting)
     audio.addEventListener('playing', onPlaying)
+    audio.addEventListener('stalled', onWaiting)
     return () => {
       clearTimeout(stallTimer)
       audio.removeEventListener('waiting', onWaiting)
       audio.removeEventListener('playing', onPlaying)
+      audio.removeEventListener('stalled', onWaiting)
     }
   }, [nextTrack])
 
@@ -367,7 +399,7 @@ export default function Player({ audioRef, playerStateRef, onArtworkChange }) {
   }, [handlePlayPause, handleSkip, handlePrev])
 
   return (
-    <div className="flex flex-col items-center gap-2 sm:gap-5 w-full max-w-md px-4" {...gestures}>
+    <div className="flex flex-col items-center gap-2 sm:gap-3 w-full max-w-md px-4" {...gestures}>
       <VibeSelector current={vibe} onChange={handleVibeChange} />
 
       {error && <p className="text-red-400/60 text-xs">{error}</p>}

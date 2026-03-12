@@ -72,7 +72,7 @@ export function unblockArtist(handle) {
 
 // Recently-played track IDs to avoid repeats across sessions
 const RECENT_KEY = 'drift:recent'
-const MAX_RECENT = 200
+const MAX_RECENT = 500
 
 export function getRecentlyPlayed() {
   try {
@@ -139,8 +139,33 @@ function qualityScore(track) {
   const comments = track.comment_count || 0
   const commentBonus = comments > 10 ? 0.3 : comments > 3 ? 0.15 : 0
 
+  // Curated playlist tracks get a big boost — they're hand-picked quality
+  const curatedBonus = track._curatedBoost ? 3.0 : 0
+
   // Engagement is king, but artist cred + love + freshness help surface gems
-  return engagement * 4 + reach * 0.3 + recency + artistBonus + loveBonus + commentBonus
+  return engagement * 4 + reach * 0.3 + recency + artistBonus + loveBonus + commentBonus + curatedBonus
+}
+
+// Keyword denylist — reject tracks with slurs, hate speech, or sexually explicit titles
+const DENYLIST_PATTERNS = [
+  // Slurs and hate speech
+  /\bn[i1]gg[ae3]r?s?\b/i, /\bf[a@]gg?[o0]ts?\b/i, /\bk[i1]ke[s]?\b/i,
+  /\bsp[i1]c[sk]?\b/i, /\bch[i1]nk[s]?\b/i, /\bwetback[s]?\b/i,
+  /\btr[a@]nn[yie]+s?\b/i, /\bretard[s]?\b/i,
+  // White supremacy / hate groups
+  /\bwhite\s*power\b/i, /\bwhite\s*supremac/i, /\bsieg\s*heil\b/i,
+  /\bheil\s*hitler\b/i, /\b14\s*88\b/, /\brace\s*war\b/i,
+  // Sexually explicit
+  /\bporn\b/i, /\bhentai\b/i, /\bxxx\b/i, /\bbukkake\b/i,
+  /\bgangbang\b/i, /\bjailbait\b/i, /\blolicon\b/i,
+]
+
+function hasDeniedContent(track) {
+  const title = (track.title || '').toLowerCase()
+  const artistName = (track.user?.name || '').toLowerCase()
+  const tags = (track.tags || '').toLowerCase()
+  const fields = [title, artistName, tags]
+  return fields.some(f => DENYLIST_PATTERNS.some(p => p.test(f)))
 }
 
 // Check if a track or artist name suggests AI-generated content
@@ -169,6 +194,10 @@ function passesQualityGate(track) {
   if (!track.title || track.title.trim().length < 2) return false
   // Artist must exist and have at least a few followers (filters bot accounts)
   if (!track.user || (track.user.follower_count || 0) < 3) return false
+  // Reject NSFW, unlisted, or deleted tracks (Audius content flags)
+  if (track.is_delete || track.is_unlisted || track.nsfw || track.is_premium) return false
+  // Reject tracks with hateful or sexually explicit titles/tags
+  if (hasDeniedContent(track)) return false
   // No AI-generated content
   if (isAIContent(track)) return false
   if (plays >= 500) return true // established tracks pass
@@ -197,9 +226,16 @@ export const VIBES = {
       'nostalgia beats', 'rainy day', 'cozy', 'warm beats',
       'sunset lofi', 'anime lofi', 'jazzhop', 'boom bap lofi',
     ],
+    minDuration: 90, // real lofi tracks are 1.5–5 min, skip short clips
     maxDuration: 6 * 60,
     genres: ['Lo-Fi'],
     apiGenre: 'Lo-Fi',
+    // Only allow mellow/peaceful moods — filters out energetic tracks mis-tagged as lofi
+    allowedMoods: ['Easygoing', 'Peaceful', 'Romantic', 'Yearning', 'Sensual', 'Sophisticated', 'Cool'],
+    // Curated playlist: Bragi Collective "Lofi Morning" — guaranteed quality lofi
+    curatedPlaylistId: '1972288554',
+    // Artists that get mis-tagged as Lo-Fi but don't fit the vibe
+    excludeHandles: ['chiefdijon', 'mollymcphaul'],
     palette: {
       '--c-deep': '#0f0808',
       '--c-navy': '#1a0e0a',
@@ -215,11 +251,11 @@ export const VIBES = {
     queries: [
       'drum and bass', 'liquid dnb', 'dnb', 'jungle',
       'neurofunk', 'atmospheric dnb', 'rollers', 'deep dnb',
-      'liquid bass', 'breakbeat', 'halfstep', 'jump up',
-      'dancefloor dnb', 'minimal dnb', 'vocal dnb', 'dark dnb',
-      'liquid funk', 'intelligent dnb', 'sambass', 'ragga jungle',
-      'clinical dnb', 'amen break', 'steppy', 'autonomic',
-      'soulful dnb', 'drumfunk', 'techstep', 'crossbreed',
+      'liquid drum and bass', 'dancefloor dnb', 'minimal dnb',
+      'vocal dnb', 'dark dnb', 'liquid funk', 'intelligent dnb',
+      'sambass', 'ragga jungle', 'amen break', 'autonomic',
+      'soulful dnb', 'drumfunk', 'techstep', 'hospital records',
+      'soul in motion', 'calibre dnb', 'lenzman', 'alix perez',
     ],
     maxDuration: 7 * 60,
     genres: ['Drum & Bass'],
@@ -271,6 +307,11 @@ export const VIBES = {
     maxDuration: 10 * 60,
     genres: ['Downtempo'],
     apiGenre: 'Downtempo',
+    // Curated artists whose tracks bypass genre filter for this vibe
+    curatedArtists: [
+      { id: 'pG0opdo', handle: 'chiefdijon' },
+      { id: '92pPakO', handle: 'mollymcphaul' },
+    ],
     palette: {
       '--c-deep': '#040810',
       '--c-navy': '#081828',
@@ -375,6 +416,61 @@ async function fetchTrendingWinners() {
   winnersCache = pages.flat()
   winnersCacheTime = Date.now()
   return winnersCache
+}
+
+// ─── Curated playlist: direct playlist source for vibe-specific quality ─────
+// Some vibes have a curatedPlaylistId — these tracks are hand-picked and bypass
+// genre filtering since they're guaranteed to match the vibe
+const curatedPlaylistCache = {}
+const CURATED_CACHE_TTL = 30 * 60 * 1000
+
+async function fetchCuratedPlaylist(playlistId) {
+  if (!playlistId) return []
+  const cached = curatedPlaylistCache[playlistId]
+  if (cached && Date.now() - cached.time < CURATED_CACHE_TTL) return cached.tracks
+  try {
+    const res = await fetch(`${API_HOST}/v1/playlists/${playlistId}/tracks?app_name=${APP_NAME}`)
+    if (!res.ok) return []
+    const json = await res.json()
+    const tracks = json.data || []
+    curatedPlaylistCache[playlistId] = { tracks, time: Date.now() }
+    return tracks
+  } catch {
+    return []
+  }
+}
+
+// ─── Curated artists: fetch all tracks by specific artists for a vibe ───
+const curatedArtistCache = {}
+const CURATED_ARTIST_CACHE_TTL = 30 * 60 * 1000
+
+async function fetchCuratedArtistTracks(artists) {
+  if (!artists || artists.length === 0) return []
+  const allTracks = []
+  for (const artist of artists) {
+    const cached = curatedArtistCache[artist.id]
+    if (cached && Date.now() - cached.time < CURATED_ARTIST_CACHE_TTL) {
+      allTracks.push(...cached.tracks)
+      continue
+    }
+    try {
+      // Fetch up to 200 tracks per artist (2 pages)
+      const tracks = []
+      for (let offset = 0; offset < 200; offset += 100) {
+        const res = await fetch(`${API_HOST}/v1/users/${artist.id}/tracks?app_name=${APP_NAME}&limit=100&offset=${offset}`)
+        if (!res.ok) break
+        const json = await res.json()
+        const page = json.data || []
+        tracks.push(...page)
+        if (page.length < 100) break
+      }
+      curatedArtistCache[artist.id] = { tracks, time: Date.now() }
+      allTracks.push(...tracks)
+    } catch {
+      // Skip failed artist
+    }
+  }
+  return allTracks
 }
 
 // ─── Curator accounts: playlist archives for discovery ──────────────────
@@ -506,7 +602,8 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
   const config = VIBES[vibe] || VIBES.lofi
 
   // Advance query index to rotate through different queries each call
-  if (!(vibe in queryIndexes)) queryIndexes[vibe] = 0
+  // Random start per session so different days surface different tracks
+  if (!(vibe in queryIndexes)) queryIndexes[vibe] = Math.floor(Math.random() * config.queries.length)
   const startIdx = queryIndexes[vibe]
   queryIndexes[vibe] += 8
 
@@ -516,7 +613,7 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
   for (let i = 0; i < 8; i++) {
     const q = config.queries[(startIdx + i) % config.queries.length]
     const s = sorts[i % sorts.length]
-    const offset = Math.floor(Math.random() * 8) * 25 // 0–175 (wider range)
+    const offset = Math.floor(Math.random() * 12) * 25 // 0–275 (deeper pages)
     const genre = pickApiGenre(config, startIdx + i)
     picks.push({ q, s, offset, genre })
   }
@@ -543,14 +640,18 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
   const winnersFetch = fetchTrendingWinners()
   const hotNewFetch = fetchHotNewTracks()
   const excludeFetch = fetchExcludedArtists(config.excludePlaylistId)
+  const curatedFetch = fetchCuratedPlaylist(config.curatedPlaylistId)
+  const curatedArtistFetch = fetchCuratedArtistTracks(config.curatedArtists)
 
-  const [searchPages, trendingTracks, undergroundTracks, winnersTracks, hotNewTracks, excludedArtists] = await Promise.all([
+  const [searchPages, trendingTracks, undergroundTracks, winnersTracks, hotNewTracks, excludedArtists, curatedTracks, curatedArtistTracks] = await Promise.all([
     Promise.all(searchFetches),
     trendingFetch,
     undergroundFetch,
     winnersFetch,
     hotNewFetch,
     excludeFetch,
+    curatedFetch,
+    curatedArtistFetch,
   ])
   // Sample from each source so we get variety each time
   const undergroundSample = shuffle(undergroundTracks).slice(0, 10)
@@ -558,11 +659,28 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
   const hotNewSample = shuffle(hotNewTracks).slice(0, 15)
   const allTracks = [...searchPages.flat(), ...trendingTracks, ...undergroundSample, ...winnersSample, ...hotNewSample]
 
+  // Per-vibe handle exclusion list (e.g. artists mis-tagged as Lo-Fi)
+  const vibeExcludeHandles = config.excludeHandles
+    ? new Set(config.excludeHandles.map(h => h.toLowerCase()))
+    : null
+
   const seen = new Set()
   const blocked = getBlockedIds()
   const blockedArtists = getBlockedArtists()
   const recentlyPlayed = getRecentlyPlayed()
   const allowedGenres = config.genres ? new Set(config.genres) : null
+  const allowedMoods = config.allowedMoods ? new Set(config.allowedMoods) : null
+
+  // Filter curated playlist + curated artist tracks (no genre check — they're vetted)
+  const allCurated = [...curatedTracks, ...curatedArtistTracks]
+  const filteredCurated = allCurated.filter((t) => {
+    if (seen.has(t.id)) return false
+    seen.add(t.id)
+    return !blocked.has(t.id)
+      && !blockedArtists.has(t.user?.handle)
+      && !recentlyPlayed.has(t.id)
+      && t.duration <= config.maxDuration
+  })
 
   const filtered = allTracks.filter((t) => {
     if (seen.has(t.id)) return false
@@ -576,9 +694,14 @@ export async function fetchTracks({ vibe = 'lofi', limit = 50 } = {}) {
       && (!config.bpmMin || (t.bpm && t.bpm >= config.bpmMin))
       && (!config.bpmMax || (t.bpm && t.bpm <= config.bpmMax))
       && !excludedArtists.has(t.user?.handle?.toLowerCase())
+      && (!vibeExcludeHandles || !vibeExcludeHandles.has(t.user?.handle?.toLowerCase()))
+      && (!allowedMoods || !t.mood || allowedMoods.has(t.mood))
       && passesQualityGate(t)
   })
-  return weightedShuffle(filtered)
+
+  // Curated tracks get a big quality boost so they surface prominently
+  const boostedCurated = filteredCurated.map(t => ({ ...t, _curatedBoost: true }))
+  return weightedShuffle([...boostedCurated, ...filtered])
 }
 
 // Fallback: even wider net when primary fetch returns too few
@@ -940,15 +1063,17 @@ export async function fetchAllPlaylistDraftIds(userId) {
   }
 }
 
-// Fetch a user's playlists from Audius (read-only, no secret needed)
+// Fetch a user's playlists from Audius
+// Uses the full API with userId param to include private playlists when the user is the owner
 // Paginates to get all playlists (API returns max 100 per page)
 export async function fetchUserPlaylists(userId) {
   const all = []
   let offset = 0
   const limit = 100
   while (true) {
+    // Full API with userId= returns private playlists for the authenticated user
     const res = await fetch(
-      `${API_HOST}/v1/users/${userId}/playlists?app_name=${APP_NAME}&limit=${limit}&offset=${offset}`
+      `${API_HOST}/v1/full/users/${userId}/playlists?app_name=${APP_NAME}&limit=${limit}&offset=${offset}&userId=${userId}`
     )
     if (!res.ok) break
     const json = await res.json()

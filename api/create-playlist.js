@@ -32,17 +32,9 @@ export default async function handler(req, res) {
       description: description || '',
       isPrivate: isPrivate !== false,
     }
-    const result = await s.playlists.createPlaylist({
-      userId,
-      metadata,
-      coverArtFile: artworkUrl || undefined,
-    })
-    const playlistId = result.playlistId || result
-    // Add tracks one by one after creation
     const ids = trackIds || []
-    for (const trackId of ids) {
-      await s.playlists.addTrackToPlaylist({ userId, playlistId, trackId })
-    }
+    const result = await s.playlists.createPlaylist({ userId, metadata, trackIds: ids })
+    const playlistId = result.playlistId || result
     return res.status(200).json({ playlistId, trackIds: ids })
   } catch (err) {
     return res.status(500).json({ error: err.message || 'Failed to create playlist' })

@@ -77,7 +77,7 @@ export default function TrackActions({ trackId, permalink, menuButton }) {
   }, [permalink])
 
   return (
-    <div className="flex items-center gap-1 justify-center">
+    <div className="flex items-center gap-1 justify-center -my-1">
       {user && (
         <>
           <button

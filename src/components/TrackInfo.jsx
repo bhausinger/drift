@@ -213,7 +213,7 @@ export default function TrackInfo({ track, onBlockArtist, onQueueArtistTracks })
 
   return (
     <div className="flex flex-col items-center justify-center text-center space-y-2">
-      <div className="flex flex-col items-center space-y-2">
+      <div className="flex flex-col items-center space-y-3">
         <div className="relative flex items-center justify-center">
           <div className="w-48 h-48 sm:w-56 sm:h-56 flex-shrink-0 rounded-xl overflow-hidden shadow-2xl shadow-black/30 relative">
             {artwork ? (

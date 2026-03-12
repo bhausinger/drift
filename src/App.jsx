@@ -11,7 +11,9 @@ import { useParallax } from './hooks/useParallax'
 
 export default function App() {
   const audioRef = useRef(null)
-  const [activeTab, setActiveTab] = useState('vibe')
+  const [activeTab, setActiveTab] = useState(() => {
+    try { return sessionStorage.getItem('drift:tab') || 'vibe' } catch { return 'vibe' }
+  })
   const [artworkUrl, setArtworkUrl] = useState(null)
   const handoffTrackRef = useRef(null)
   const playerStateRef = useRef({ currentTrack: null, isPlaying: false })
@@ -26,6 +28,7 @@ export default function App() {
       handoffTrackRef.current = { ...playerStateRef.current }
     }
     setActiveTab(tab)
+    try { sessionStorage.setItem('drift:tab', tab) } catch {}
   }, [activeTab])
 
   return (
@@ -42,16 +45,16 @@ export default function App() {
         </h1>
 
         <main className="min-h-dvh flex flex-col items-center justify-center px-4 pb-20 sm:pb-4 select-none">
-          <Player audioRef={audioRef} playerStateRef={playerStateRef} onArtworkChange={setArtworkUrl} />
+          <Player audioRef={audioRef} playerStateRef={playerStateRef} onArtworkChange={setArtworkUrl} isActive={activeTab === 'vibe'} />
         </main>
       </div>
 
       {/* Deep Dive */}
       <div className={activeTab === 'deepdive' ? '' : 'hidden'}>
         <DJMode
-          onClose={() => setActiveTab('vibe')}
           audioRef={audioRef}
           handoffTrackRef={handoffTrackRef}
+          isActive={activeTab === 'deepdive'}
         />
       </div>
 
